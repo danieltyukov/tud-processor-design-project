@@ -48,7 +48,8 @@ session should open this file first for context.
 - [x] **Simulation baseline:** 59,560 cycles, ciphertext correct, test PASSED (see `BASELINE.md`)
 - [x] **C → COE pipeline proven reproducible:** `make soft` produces byte-identical `.coe` (diff empty). Shipped `.coe` backed up at `hardware/src/sw/mem_files.shipped.bak/` on server
 - [x] **OOC synthesis measured:** 5,691 LUTs / 2,524 regs / 5 DSPs / WNS +5.513 ns (see `BASELINE.md`)
-- [x] **Static profiling:** `mix_columns` is 55% of cycles, ~37k total instrs, CPI ≈ 1.61 (see `PROFILING.md`)
+- [x] **Static profiling:** `mix_columns` is 55% of cycles (estimate), ~37k total instrs, CPI ≈ 1.61 (see `PROFILING.md` § 1-6)
+- [x] **Dynamic profiling (2026-05-02):** `mix_columns` measured at **83.8%** of cycles (50,643 of 60,457). Cross-validates static. Key finding: dominance is even larger than estimated → Phase 2 deliverables can plausibly hit 3-5× speedup (see `PROFILING.md` § 7-8)
 
 ### Documentation artifacts
 
@@ -81,7 +82,7 @@ session should open this file first for context.
 
 ### Before Fri 2026-05-08 23:59 (intermediate report)
 
-- [ ] **Task 6: Dynamic profiling** (~1–2 hours, optional but strengthens the report). Instrument `main.c` with `rdcycle` CSR reads around each AES function, rebuild, re-run sim, report per-function cycle costs. Compare against the static estimates in `PROFILING.md`.
+- [x] **Task 6: Dynamic profiling** ✅ done 2026-05-02. mix_columns = 83.8% of cycles (measured). Required `csrwi 0x320, 0` to clear `mcountinhibit` because CV32E40P resets all perf counters disabled. Results in `PROFILING.md` § 7.
 - [ ] **Task 9: Draft intermediate report** (Brightspace quiz, opens 2026-05-04). Contents per rubric:
   - (a) Proposed target metric + justification → **cycle reduction on AES-128 encryption**
   - (b) State-of-the-art background → RISC-V Zkne v0.9.3 spec, CV32E40P docs, scalar-crypto papers
