@@ -1,0 +1,3 @@
+[submodule "pdp-project-24"]
+	path = pdp-project-24
+	url = git@gitlab.ewi.tudelft.nl:qce/computer-engineering/computer-engineering/courses/pdp-processor-design-project/student-work/2025-2026/pdp-project-24.git

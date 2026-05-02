@@ -2,12 +2,17 @@
 
 Group 24 personal workspace for **CESE4040 Processor Design Project** (TU Delft, Q4 2025-2026).
 
-This repo holds our personal helpers, notes, and the course PDFs. The course-tracked
-sources (RTL, C software) live in a **separate gitlab repo** that you clone into
-`pdp-project-24/` — see step 3 below.
+This repo holds our personal helpers, notes, course PDFs, profiling
+work, and the intermediate-report draft. The course-tracked sources
+(RTL, C software) are referenced as a **git submodule** pointing at the
+GitLab course repo; cloning + initialising the submodule pulls them in.
 
 > Course context, deadlines, baseline numbers, etc. → `CLAUDE.md`
-> Per-task progress log → `PROGRESS.md`, `BASELINE.md`, `PROFILING.md`
+> Measured baseline (cycles, area, timing) → `BASELINE.md`
+> Static + dynamic profiling → `PROFILING.md`
+> Running task log → `PROGRESS.md`
+> Intermediate-report draft → `REPORT_INTERMEDIATE.md`
+> Profiling instrumentation snapshots → `profiling-instrumentation/`
 
 ## Layout
 
@@ -15,8 +20,10 @@ sources (RTL, C software) live in a **separate gitlab repo** that you clone into
 .
 ├── CLAUDE.md                     # primary project context (read this first)
 ├── BASELINE.md                   # measured baseline numbers
-├── PROFILING.md                  # profiling notes
-├── PROGRESS.md                   # running task log
+├── PROFILING.md                  # static + dynamic profiling, methodology, projections
+├── PROGRESS.md                   # running task log + deadlines + gotchas
+├── REPORT_INTERMEDIATE.md        # draft of the Brightspace intermediate report
+├── README.md                     # this file
 ├── credentials.example.txt       # copy → credentials.txt and fill in
 ├── scripts/                      # helpers: server SSH, mount, Vivado, X2Go, fetch
 │   ├── _lib.sh                       # shared: loads credentials
@@ -27,9 +34,24 @@ sources (RTL, C software) live in a **separate gitlab repo** that you clone into
 │   ├── launch-vivado.sh              # ssh -Y → Vivado GUI (or --batch-sim)
 │   ├── launch-x2go.sh                # full MATE desktop via X2Go
 │   └── fetch-from-server.sh          # scp artifacts (e.g. bitstream) to ./artifacts/
-├── pdp-project-24/               # NOT in this repo — clone separately (step 3)
+├── profiling-instrumentation/    # snapshots of instrumented main.c + zynq_tb.sv (Task #6)
+│   ├── README.md
+│   ├── main.baseline.c
+│   ├── main.instrumented.c
+│   ├── zynq_tb.baseline.sv
+│   └── zynq_tb.instrumented.sv
+├── pdp-project-24/               # GIT SUBMODULE → GitLab course repo (RTL + C source)
 └── *.pdf                         # course manuals (Brightspace mirror)
 ```
+
+**Note on `pdp-server-mnt/`**: this is the SSHFS mount of the dev
+server's `$HOME`, mounted by `scripts/mount-server.sh` to
+`~/pdp-server-mnt/` on each developer's laptop. It is *not* in this
+repo (and *cannot* be — it's a network mount with shared-account
+credentials and gigabytes of regenerable Vivado build artifacts). Use
+the helper scripts to access server files; the *valuable* server-side
+artifacts (instrumented `main.c`, `zynq_tb.sv`) are mirrored into
+`profiling-instrumentation/` above.
 
 ## Onboarding (new teammate)
 
@@ -56,16 +78,26 @@ Fill in:
 
 `credentials.txt` is `.gitignore`d — never commit it.
 
-### 3. Clone the gitlab subrepo
+### 3. Pull the gitlab submodule
 
-The course-tracked RTL + C sources live in a separate gitlab repo. Clone it into the
-`pdp-project-24/` subdirectory of this workspace:
+The course-tracked RTL + C sources are tracked as a git submodule
+pointing at GitLab. Initialize it after cloning this repo:
 
 ```bash
-git clone git@gitlab.ewi.tudelft.nl:qce/computer-engineering/computer-engineering/courses/pdp-processor-design-project/student-work/2025-2026/pdp-project-24.git
+git submodule update --init --recursive
 ```
 
-Requires SSH-key access to `gitlab.ewi.tudelft.nl` (add your pubkey at <https://gitlab.ewi.tudelft.nl/-/profile/keys>).
+Requires SSH-key access to `gitlab.ewi.tudelft.nl` (add your pubkey at
+<https://gitlab.ewi.tudelft.nl/-/profile/keys>). To pull updates from
+GitLab afterwards:
+
+```bash
+git submodule update --remote pdp-project-24
+```
+
+If you make changes inside `pdp-project-24/`, commit + push them to
+GitLab from inside that directory; then come back to the parent and
+commit the new submodule reference in this repo.
 
 ### 4. Push your SSH pubkey to the dev server (one-time)
 
