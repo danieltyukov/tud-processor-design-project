@@ -42,39 +42,58 @@ instructions): the compiler **inlined** every one of the 8 calls to
 back-to-back 12-instruction loops, one per `gf_mult` invocation, all
 inside the outer 4-iteration column loop.
 
-Dynamic execution per `mix_columns` call:
+Dynamic execution per `mix_columns` call. The C source has *one* outer
+loop with 4 iterations (one per column), and each iteration calls
+`gf_mult()` 8 times. Each inlined `gf_mult()` is itself an 8-iteration
+loop with ~12 instructions per iteration:
 
 ```
-4 columns × 8 inlined gf_mult loops × 8 loop-body instrs × 12 instrs/iter
-    ≈ 3,100 instructions per column iteration
-    × 4 column iterations
-    ≈ 3,640 instructions per mix_columns call
+Per column iteration:
+    8 inlined gf_mult invocations
+  × 8 inner-loop iterations each
+  × ~12 instrs per inner-loop iteration
+  ≈ 770 instrs of bit-serial multiplier work
+  + ~50-100 instrs of XOR / load / store / index glue
+  ≈ ~850 instrs per column iteration
+
+Per mix_columns call:
+    ~850 instrs/column × 4 column iterations
+  ≈ ~3,400 instrs per mix_columns call
 ```
 
-Across **9 full rounds**: 9 × 3,640 ≈ **32,700 dynamic instructions**.
+Across **9 full rounds**: 9 × ~3,400 ≈ **~30,000 dynamic instructions**.
+(An earlier draft of this section double-counted the `× 4 columns`
+factor and reported 32,700 — the corrected figure is ~30,000. Either
+way the conclusion is unchanged: `mix_columns` is the dominant
+contributor by an order of magnitude over every other AES phase.)
 
 The final (10th) round skips `mix_columns` by design, so `mix_columns`
 accounts for cycles in rounds 1–9 only.
 
 ## 3. Estimated dynamic instruction mix
 
-| Function | Dyn. calls | Dyn. instrs | % of ~37k total |
+| Function | Dyn. calls | Dyn. instrs | % of ~34k total |
 |---|---:|---:|---:|
-| **mix_columns** (incl. inlined gf_mult) | 9 | **~32,700** | **~55%** |
-| add_round_key | 11 | ~1,232 | ~2% |
-| sub_bytes | 10 | ~1,120 | ~2% |
-| expand_key | 1 | ~874 | ~1.5% |
-| aes128_encrypt_block glue | 1 | ~300 | ~0.5% |
-| shift_rows | 10 | ~290 | ~0.5% |
-| misc (main, memcpy, write_v_to_address) | — | ~500 | ~1% |
-| **Total estimated instructions** | | **~37,000** | |
+| **mix_columns** (incl. inlined gf_mult) | 9 | **~30,000** | **~88%** |
+| add_round_key | 11 | ~1,232 | ~3.6% |
+| sub_bytes | 10 | ~1,120 | ~3.3% |
+| expand_key | 1 | ~874 | ~2.6% |
+| aes128_encrypt_block glue | 1 | ~300 | ~0.9% |
+| shift_rows | 10 | ~290 | ~0.85% |
+| misc (main, memcpy, write_v_to_address) | — | ~500 | ~1.5% |
+| **Total estimated instructions** | | **~34,000** | |
+
+The ~88% static estimate for `mix_columns` lands within ~5 percentage
+points of the dynamic measurement (83.8%, see § 7.2) — much tighter
+agreement than the original 55% estimate suggested. The corrected
+math also better reflects the measured CPI (see § 4).
 
 ## 4. CPI analysis
 
 Measured cycles: **59,560** (from `mem_snoop_match.CLK_COUNT`).
-Estimated instructions: **~37,000**.
+Estimated instructions: **~34,000**.
 
-**CPI = 59,560 / 37,000 ≈ 1.61**
+**CPI = 59,560 / 34,000 ≈ 1.75**
 
 For a single-issue in-order CV32E40P core, a CPI well above 1.0
 indicates significant stall cycles. Sources, in rough order:
@@ -175,13 +194,16 @@ perturb correctness.
 
 ### 7.3 Static vs dynamic cross-check
 
-| Function | Static estimate (cycles, CPI=1.61) | Measured (cycles) | Ratio |
+(Static estimates use the corrected per-function instruction counts
+from § 3 and CPI = 1.75 from § 4.)
+
+| Function | Static estimate (cycles, CPI=1.75) | Measured (cycles) | Ratio |
 |---|---:|---:|---:|
-| `mix_columns` | ~52,650 | 50,643 | 0.96 ✓ |
-| `add_round_key` | ~1,983 | 2,850 | 1.44 |
-| `sub_bytes` | ~1,803 | 2,679 | 1.49 |
-| `shift_rows` | ~467 | 510 | 1.09 ✓ |
-| `expand_key` | ~1,407 | 2,417 | 1.72 |
+| `mix_columns` | ~52,500 | 50,643 | 0.96 ✓ |
+| `add_round_key` | ~2,156 | 2,850 | 1.32 |
+| `sub_bytes` | ~1,960 | 2,679 | 1.37 |
+| `shift_rows` | ~508 | 510 | 1.00 ✓ |
+| `expand_key` | ~1,530 | 2,417 | 1.58 |
 
 The two methodologies **agree on the dominant hot-spot** (mix_columns).
 Static analysis was within 4% on the biggest contributor. The
