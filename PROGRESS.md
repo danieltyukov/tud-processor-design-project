@@ -6,6 +6,22 @@ Living document. Whoever opens this next — start here.
 measured, pipeline verified, profiling analysis written. Next working
 session should open this file first for context.
 
+**Update (2026-05-06):** Rishi ran post-implementation reports
+(utilization / timing / power) on the unmodified design and shared
+them via chat (not pushed to git). They have been parked at
+[`baselines/post-impl-2026-05-06/`](./baselines/post-impl-2026-05-06/README.md)
+with a README that reconciles them against the OOC numbers in
+`BASELINE.md`. Headline: full design closes at 20 MHz with +28.306 ns
+WNS, 10,171 LUTs / 8,522 FFs / 16 BRAMs / 5 DSPs, 1.419 W on-chip
+(95 % of which is the always-on PS7).
+
+**Update (2026-05-06):** Team scope agreed in Teams Group 24 chat —
+Rishi takes side-channel resistance (Task 2.2 group-specific
+improvement candidate); area/power/latency/throughput surveys split
+across the other three teammates; meeting "tomorrow afternoon" to
+pick the final improvement axis. Owner table below should be filled
+from that meeting.
+
 ---
 
 ## Quick status
@@ -48,6 +64,7 @@ session should open this file first for context.
 - [x] **Simulation baseline:** 59,560 cycles, ciphertext correct, test PASSED (see `BASELINE.md`)
 - [x] **C → COE pipeline proven reproducible:** `make soft` produces byte-identical `.coe` (diff empty). Shipped `.coe` backed up at `hardware/src/sw/mem_files.shipped.bak/` on server
 - [x] **OOC synthesis measured:** 5,691 LUTs / 2,524 regs / 5 DSPs / WNS +5.513 ns (see `BASELINE.md`)
+- [x] **Post-implementation snapshot (2026-05-06, Rishi):** 10,171 LUTs / 8,522 regs / 16 BRAMs / 5 DSPs / WNS +28.306 ns @ 20 MHz; total power 1.419 W (PS7 dominates). See `baselines/post-impl-2026-05-06/README.md`.
 - [x] **Static profiling:** `mix_columns` is 55% of cycles (estimate), ~37k total instrs, CPI ≈ 1.61 (see `PROFILING.md` § 1-6)
 - [x] **Dynamic profiling (2026-05-02):** `mix_columns` measured at **83.8%** of cycles (50,643 of 60,457). Cross-validates static. Key finding: dominance is even larger than estimated → Phase 2 deliverables can plausibly hit 3-5× speedup (see `PROFILING.md` § 7-8)
 

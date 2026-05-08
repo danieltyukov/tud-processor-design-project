@@ -24,6 +24,12 @@ shipped `.coe` files. Pipeline proven reproducible from C source
 | xsim peak memory | ~8.5 GB RSS |
 | Wall-clock run time | compile 10 s + elaborate 85 s + simulate 63 s ≈ 3 min |
 
+> **Companion baseline:** post-implementation (full `riscv_wrapper`,
+> Routed) numbers captured by Rishi 2026-05-06 are in
+> [`baselines/post-impl-2026-05-06/`](./baselines/post-impl-2026-05-06/README.md).
+> Use OOC numbers below for "core cost"; use post-impl for "what
+> ships on the FPGA".
+
 ## 2. Area + timing baseline — OOC synthesis
 
 Run with `source ./scripts/create_project_ooc_synth.tcl`. OOC flow
