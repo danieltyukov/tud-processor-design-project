@@ -1,0 +1,58 @@
+1) What extension(s) and improvement(s) are you planning to implement?
+
+Option 1
+Making the aes32esmi implementation resilient to power side-channel attacks through Domain-Oriented Masking of the instruction datapath, ensuring that no intermediate value in the hardware exposes key-dependent switching activity. This contribution is based on the work of Kassimi et al. in "Secure Implementation of RISC-V's Scalar Cryptography Extension Set." A final decision between the two candidates will be made following consultation with the project supervisors and an assessment of implementation feasibility within the remaining project timeline.
+
+Option 2
+The Zkne aes32esmi instruction does exactly one byte's worth of&nbsp; work — one S-box, one partial MixColumns, one XOR. Computing one full output word requires four chained aes32esmi instructions, and a complete middle round needs sixteen of them. We plan to collapse each four-instruction chain into a single instruction that computes one full output word in one cycle through a custom instruction. It would take the four state words as inputs and produce one output word directly.
+
+2) What metrics will be used to evaluate the final design?
+
+For the side channel resilient design:
+
+The proposed side-channel-resilient design is planned to be validated using a multi-layer evaluation methodology combining formal verification, statistical leakage assessment, and practical attack analysis. Formal security verification is performed using formal verification tools like SILVER to assess probing and glitch-resistant security properties at the hardware level. Experimental leakage evaluation is conducted using Test Vector Leakage Assessment (TVLA), while practical resistance against power-analysis attacks is assessed through CPA and key-rank analysis. Together, these methods provide both theoretical and empirical validation of the design’s side-channel resilience. 
+
+To generate the power traces, two possible approaches can be considered. First, power traces may be estimated from generated .vcd files using the Hamming-distance leakage model, after which side-channel attacks can be performed in software. Alternatively, subject to approval and availability of the laboratory setup, empirical power traces may be collected using a hardware measurement setup, as reportedly arranged for previous projects.
+
+For the "super instruction":
+Reduction in latency beyond the mandatory aes32esi/aes32esmi deliverables. We plan to compare the cycle count of the baseline, the aes32esi/aes32esmi implementation and the custom instruction. We also plan to measure area to check upon possible savings or expenditure in silicon. Functional correctness will be verified every run by checking the produced ciphertext against the expected output
+
+
+3) Why have you chosen for these extension(s)/improvement(s)?
+
+For the side channel resilient design:
+
+Side-channel resilience is essential because cryptographic hardware can leak sensitive information through physical effects such as power consumption, timing variations, or electromagnetic emissions, even when the underlying cryptographic algorithm is mathematically secure. Attackers can exploit this unintended leakage using techniques such as Differential Power Analysis (DPA) or Correlation Power Analysis (CPA) to recover secret keys. As hardware accelerators are increasingly deployed in security-critical applications including IoT devices, embedded systems, and secure communication platforms, protecting implementations against side-channel attacks has become a necessary requirement. Therefore, incorporating side-channel-resistant design techniques improves the overall security and trustworthiness of the hardware implementation beyond conventional functional correctness.
+
+For the super instruction:'
+The Zkne aes32esmi instruction does exactly one byte's worth of&nbsp; work — one S-box, one partial MixColumns, one XOR. Computing one full output word requires four chained aes32esmi instructions, and a complete middle round needs sixteen of them.&nbsp; AES and other encryption methods are standard in modern communication systems. For faster communication, low latency encryption modules are indispensable.&nbsp;
+
+
+4)Methodology – what are the tasks needed to successfully complete the project? Who is assigned to which mentioned task? The task should include the following:
+
+A) Integration
+
+B) Definition of baseline (for comparison)
+
+C) Validation/measurements
+
+
+
+implementation of aes32esi -Hruday/Sathya/Vishnu
+implementation of aes32esmi - Vishnu/Rishi/Daniel
+
+Measurement of baseline - Daniel/Rishi
+
+implementation of optimisation - All 5
+
+Measurement/Validation - Hruday/Sathya
+
+
+5)Planning – draw up a Gannt chart with stated tasks and define milestones (which can be used to track the progress of your project).
+Still working on it !!!
+
+
+
+
+
+

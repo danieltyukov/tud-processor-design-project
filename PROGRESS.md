@@ -2,25 +2,59 @@
 
 Living document. Whoever opens this next — start here.
 
-**Today (2026-04-24):** Phase 1 bring-up completed end-to-end. Baseline
-measured, pipeline verified, profiling analysis written. Next working
-session should open this file first for context.
+**Today (2026-05-08, intermediate report due 23:59):** Phase 1
+bring-up done; baseline measured + post-impl baseline (Rishi)
+captured; bitstream generated and pulled to `artifacts/`. Team has
+firmed up Q1 #3 as **the AES "super-instruction"** (Pan et al. 2021
+inspiration), with side-channel resistance (Kassimi/Taouil 2026)
+deferred as a stretch goal. Hruday's draft folded into
+`REPORT_INTERMEDIATE.md` Q1–Q5 with team ownership tables. Next
+working session should open this file first for context.
 
-**Update (2026-05-06):** Rishi ran post-implementation reports
-(utilization / timing / power) on the unmodified design and shared
-them via chat (not pushed to git). They have been parked at
-[`baselines/post-impl-2026-05-06/`](./baselines/post-impl-2026-05-06/README.md)
-with a README that reconciles them against the OOC numbers in
-`BASELINE.md`. Headline: full design closes at 20 MHz with +28.306 ns
-WNS, 10,171 LUTs / 8,522 FFs / 16 BRAMs / 5 DSPs, 1.419 W on-chip
-(95 % of which is the always-on PS7).
+### Recent updates
 
-**Update (2026-05-06):** Team scope agreed in Teams Group 24 chat —
-Rishi takes side-channel resistance (Task 2.2 group-specific
-improvement candidate); area/power/latency/throughput surveys split
-across the other three teammates; meeting "tomorrow afternoon" to
-pick the final improvement axis. Owner table below should be filled
-from that meeting.
+**2026-05-06 (Rishi):** post-implementation reports (utilization /
+timing / power) on the unmodified design — full design closes at
+20 MHz with +28.306 ns WNS, 10,171 LUTs / 8,522 FFs / 16 BRAMs /
+5 DSPs, 1.419 W on-chip (95 % is the always-on PS7). Snapshot at
+[`baselines/post-impl-2026-05-06/`](./baselines/post-impl-2026-05-06/README.md).
+
+**2026-05-06 (Vishnu + Hruday):** state-of-the-art research papers
+shared via chat — both copied into [`references/`](./references/README.md)
+with notes:
+- **Kassimi A. et al. (TU Delft, 2026)** — "Secure Implementation of
+  RISC-V's Scalar Cryptography Extension Set". DOM-protected Zkne
+  on CV32E40S, +0.39 % area / 0 % perf overhead. Validation requires
+  ChipWhisperer (we don't have one) → harder to validate end-to-end.
+- **Pan L. et al. (Wuhan, 2021)** — "A Lightweight AES Coprocessor
+  Based on RISC-V Custom Instructions". 25–38 % runtime gain on
+  Hummingbird E203. Their full design > our 8-week budget; we adapt
+  the kernel idea (fuse 4 chained `aes32esmi` into 1 super-instruction).
+
+**2026-05-07 (Vishnu's plan + team Teams discussion):** all three
+improvements agreed for the report — Zkne instructions (mandatory)
++ LLVM loop unroll (mandatory) + super-instruction (group-specific).
+Side-channel deferred. Hruday drafted Brightspace answers in
+[`drafts/2026-05-08-hruday-quiz-draft.txt`](./drafts/2026-05-08-hruday-quiz-draft.txt);
+folded into `REPORT_INTERMEDIATE.md`.
+
+**2026-05-08 (Daniel):** generated the project's first
+self-built bitstream via headless `vivado -mode batch -source
+./scripts/gen_bitstream.tcl` on the server (~18 min); pulled to
+[`artifacts/`](./artifacts/) on the laptop. Identical 4,045,673-byte
+size to the course-shipped `base_riscy.bit` (same source, same
+toolchain). Also fixed `scripts/fetch-from-server.sh --bitstream`
+which had a `$HOME`-vs-scp bug.
+
+### Team
+
+Group 24 has **5 members**. Roles for the report (Phase 2 split is the same — see `REPORT_INTERMEDIATE.md` Q4):
+
+- **Daniel Tyukov** (datyukov) — repo + GitHub mirror + helper scripts; report compilation; baseline measurement.
+- **Rishi** — Vivado implementation flow; area/power/timing post-impl reports; baseline co-owner.
+- **Vishnu Karthik** — state-of-the-art research; supervisor liaison (emailing Prof. Mottah Taouil); side-channel track if we revive it.
+- **Hruday Gowda** — instruction-set research; super-instruction track lead; quiz writer.
+- **Sathya** — validation / measurement track lead. *(Confirm surname + NetID before final submission.)*
 
 ---
 
@@ -28,18 +62,21 @@ from that meeting.
 
 | Phase | Status |
 |---|---|
-| **Phase 1: bring-up + plan** | ✅ Tooling + baseline done. ⏳ FPGA + report remain. |
-| **Phase 2: implement + evaluate** | ⏳ Not started (begins after 2026-05-08 report). |
+| **Phase 1: bring-up + plan** | ✅ Tooling, baselines, profiling, bitstream done. ⏳ Report submission tonight; FPGA-board verification still pending. |
+| **Phase 2: implement + evaluate** | ⏳ Starts 2026-05-09. Task table in `REPORT_INTERMEDIATE.md` Q4 (A1–A6 / B1–B5 / C1–C7) is the working plan. |
 
 ## Deadlines (in order)
 
-| Date | Milestone |
-|---|---|
-| Fri 2026-05-01 13:45–17:45 | **Lab session** — FPGA bring-up on PYNQ-Z1 with TA support |
-| Mon 2026-05-04 | Brightspace intermediate-report quiz **opens** |
-| **Fri 2026-05-08 23:59** | **Intermediate report due** (Brightspace, one submission per group) |
-| Fri 2026-06-12 | End of week 8: source archive + presentation slides |
-| Weeks 25–26 | 60-min final slot per group (20 pres + 10 demo + 20 Q&A) |
+| Date | Milestone | Status |
+|---|---|---|
+| Fri 2026-05-01 13:45–17:45 | Lab session — FPGA bring-up support | ✅ passed |
+| Mon 2026-05-04 | Brightspace intermediate-report quiz opens | ✅ |
+| **Fri 2026-05-08 23:59** | **Intermediate report due** (one submission per group) | ⏳ **TODAY** |
+| Sat 2026-05-23 | M2: `aes32esi`/`aes32esmi` RTL + sim PASSED | ⏳ Phase 2 |
+| Tue 2026-06-02 | M3: LLVM intrinsics + loop unroll | ⏳ Phase 2 |
+| Tue 2026-06-09 | M4: super-instruction + PYNQ verification | ⏳ Phase 2 |
+| Fri 2026-06-12 | M5: source archive + presentation slides | ⏳ Phase 2 |
+| Weeks 25–26 | 60-min final slot per group (20 pres + 10 demo + 20 Q&A) | ⏳ |
 
 ---
 
@@ -68,52 +105,49 @@ from that meeting.
 - [x] **Static profiling:** `mix_columns` is 55% of cycles (estimate), ~37k total instrs, CPI ≈ 1.61 (see `PROFILING.md` § 1-6)
 - [x] **Dynamic profiling (2026-05-02):** `mix_columns` measured at **83.8%** of cycles (50,643 of 60,457). Cross-validates static. Key finding: dominance is even larger than estimated → Phase 2 deliverables can plausibly hit 3-5× speedup (see `PROFILING.md` § 7-8)
 
+### FPGA bring-up
+
+- [x] **Bitstream generated 2026-05-08:** headless `vivado -mode batch -source ./scripts/gen_bitstream.tcl` on the server (~18 min wall-clock), then `./scripts/fetch-from-server.sh --bitstream`. Files in `artifacts/`: `riscv_wrapper.bit` (4,045,673 B), `riscv.hwh` (293,325 B), `riscv_wrapper.tcl` (12,355 B).
+- [x] **`fetch-from-server.sh --bitstream` bug fixed** — was passing literal string `$HOME` to scp (no remote shell expansion); switched to scp tilde-expansion via `~`-relative paths.
+
 ### Documentation artifacts
 
 - [x] `CLAUDE.md` — project context (auto-loaded by Claude Code)
-- [x] `BASELINE.md` — measured baseline (cycles, area, timing)
+- [x] `BASELINE.md` — measured baseline (cycles, OOC area, OOC timing)
+- [x] `baselines/post-impl-2026-05-06/README.md` — Rishi's post-impl baseline (full design, routed)
 - [x] `PROFILING.md` — static analysis, projected Phase 2 speedup
 - [x] `PROGRESS.md` — this file
+- [x] `REPORT_INTERMEDIATE.md` — Brightspace Q1–Q5 prose draft (folded in Hruday's draft + papers + baselines)
+- [x] `references/README.md` — Kassimi/Taouil 2026 + Pan 2021 papers with notes
+- [x] `drafts/2026-05-08-hruday-quiz-draft.txt` — team's working text
 - [x] Memory files under `~/.claude/projects/.../memory/` keep state across sessions
 
 ---
 
 ## What's left — ordered by urgency
 
-### Before Fri 2026-05-01 lab (1 week)
+### Tonight before 2026-05-08 23:59 (intermediate report)
 
-- [ ] **Sanity-check PYNQ-Z1 connectivity at home** (5 min). Plug board into laptop via Ethernet, confirm you can reach `http://192.168.2.99` and log in as `xilinx / xilinx`. If it fails, bring the failure to Friday's lab for TA help — don't spend hours debugging solo.
-- [ ] **Task 7: Generate full bitstream** (~20–30 min, server). Run in Vivado Tcl console:
-  ```tcl
-  source ./scripts/gen_bitstream.tcl
-  ```
-  Then pull the artifact home:
-  ```bash
-  ./scripts/fetch-from-server.sh --bitstream
-  ```
-  Produces `artifacts/riscv_wrapper.bit` + `riscv_wrapper.tcl` + `riscv.hwh` on the laptop. Needed for the lab.
+- [ ] **Final read-through of `REPORT_INTERMEDIATE.md` Q1–Q5** with the team. Specifically:
+  - Confirm side-channel option is **deferred** (current draft) vs. **pitched as parallel track**.
+  - Confirm Sathya's surname + NetID for the team list.
+  - Spot-check Q4 ownership against what teammates expect to do.
+- [ ] **Submit Brightspace quiz** (one person, copy each Q1–Q5 section in). Probably Daniel.
+- [ ] **Push everything to GitHub** so the team has visibility (papers, drafts, baselines/, REPORT_INTERMEDIATE.md, fixed fetch script).
 
-### During Fri 2026-05-01 lab
+### After the report — quick wins (2026-05-09 weekend)
 
-- [ ] **Task 8: PYNQ-Z1 FPGA bring-up.** Upload bitstream via browser/Jupyter, run `base_riscy.ipynb`, confirm AES output matches sim (`fba50914 714bf41f 2e25aabe aaf9080f`). TA support available.
+- [ ] **PYNQ-Z1 FPGA bring-up.** Plug board into laptop via Ethernet → `http://192.168.2.99` (xilinx/xilinx) → upload `artifacts/riscv_wrapper.bit` + `riscv.hwh` + `riscv_wrapper.tcl` via Jupyter → run `base_riscy.ipynb` → confirm ciphertext = `fba50914 714bf41f 2e25aabe aaf9080f`. (Bitstream is ready, just need to load it.)
+- [ ] **Sanity-check `aes32esi`/`aes32esmi` opcode space** in `cv32e40p_decoder.sv` — make sure the encoding we want isn't shadowed by Xpulp custom ops.
 
-### Before Fri 2026-05-08 23:59 (intermediate report)
+### Phase 2 (2026-05-09 → 2026-06-12)
 
-- [x] **Task 6: Dynamic profiling** ✅ done 2026-05-02. mix_columns = 83.8% of cycles (measured). Required `csrwi 0x320, 0` to clear `mcountinhibit` because CV32E40P resets all perf counters disabled. Results in `PROFILING.md` § 7.
-- [ ] **Task 9: Draft intermediate report** (Brightspace quiz, opens 2026-05-04). Contents per rubric:
-  - (a) Proposed target metric + justification → **cycle reduction on AES-128 encryption**
-  - (b) State-of-the-art background → RISC-V Zkne v0.9.3 spec, CV32E40P docs, scalar-crypto papers
-  - (c) Planned methodology → cite `BASELINE.md` numbers, cite `PROFILING.md` 55% breakdown
-  - (d) Internal task breakdown — who does what among the 4 teammates, with milestones
-- [ ] **Coordinate with teammates** in Teams Group 24 channel — split up Phase 2 work: (i) RTL (someone writes `aes32esmi`/`aes32esi` in `cv32e40p_alu.sv` + decoder), (ii) LLVM pass, (iii) test/sim/bitstream harness, (iv) report writing.
+The detailed task table lives in `REPORT_INTERMEDIATE.md` Q4 — A1–A6 (Integration), B1–B5 (Baseline, mostly done), C1–C7 (Validation). Don't duplicate it here. Cross-track milestones:
 
-### Phase 2 — starts 2026-05-09 after the report
-
-- [ ] **Task 2.1a: Implement `aes32esmi` + `aes32esi` in RISCY RTL**. Files to touch: `hardware/src/design/riscy/cv32e40p_decoder.sv`, `cv32e40p_alu.sv`, possibly `cv32e40p_pkg.sv`. Reference: RISC-V Scalar Crypto v0.9.3 spec, section for Zkne encodings.
-- [ ] **Task 2.1b: Expose through LLVM**. First approach = inline asm in `main.c`. Proper approach = LLVM intrinsic in the RISC-V backend; requires rebuilding LLVM (the `/data/mirror/llvm/build-release` tree is a release build, we'd need to clone llvm-project and add our own scalar-crypto extension in our `$HOME`).
-- [ ] **Task 2.1c: LLVM loop-unroll pass on middle-round MixColumns loop** — course-mandated as a built-in pass. Apply via `-mllvm -unroll-count=4` on the hot loop, or write a simple pass that targets the mix_columns outer loop.
-- [ ] **Task 2.2: Group-specific improvement** (TBD by group). Options from course brief: latency, throughput, area, memory footprint, register pressure, side-channel resistance, custom LLVM passes. Pick in the intermediate report, implement in Phase 2.
-- [ ] **Task 2.3: Final deliverables** (due 2026-06-12). RTL + LLVM mods + build/run scripts archive, final-presentation slides, live demo script.
+- **M2 — 2026-05-23:** `aes32esi` + `aes32esmi` decoded + executed in RTL; sim PASSED.
+- **M3 — 2026-06-02:** LLVM toolchain emits both new instructions; loop-unroll pass active.
+- **M4 — 2026-06-09:** Super-instruction (custom-0 fused middle-round op) implemented + measured + verified on PYNQ-Z1.
+- **M5 — 2026-06-12:** Final source archive + slides + demo script submitted.
 
 ---
 
@@ -160,7 +194,7 @@ source ./scripts/create_project.tcl
 
 ## Gotchas learned (don't re-learn them)
 
-- **Server is shared-group account** (`cese4040-24`, 4 teammates). Don't kill X2Go sessions you don't recognize — they're your teammates' work.
+- **Server is shared-group account** (`cese4040-24`, 5 teammates). Don't kill X2Go sessions you don't recognize — they're your teammates' work.
 - **Port 22 outbound blocked on server**: SSH-git to gitlab fails. Only HTTPS+PAT works. PAT is revocable and scoped.
 - **Vivado's `create_project.tcl` is destructive** — it deletes `vivado/riscy/` every run. Don't put precious state there.
 - **NFS silly-rename** (`.nfsXXXXXX` files) happens when a process got OOM-killed while holding files. Fix: `mv riscy riscy.orphaned.<timestamp>` rather than fighting `rm`.

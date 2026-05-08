@@ -27,8 +27,8 @@ SCP_ARGS=(-i "$PDP_SSH_KEY" -o ServerAliveInterval=60)
 
 if [[ "${1:-}" == "--bitstream" ]]; then
     echo ">>> fetching the baseline bitstream bundle to $ARTIFACTS_DIR/"
-    REMOTE_BASE='$HOME/pdp-project/hardware/vivado/riscy/riscy.runs/impl_1'
-    REMOTE_HWH='$HOME/pdp-project/hardware/vivado/riscy/riscy.gen/sources_1/bd/riscv/hw_handoff/riscv.hwh'
+    REMOTE_BASE='pdp-project/hardware/vivado/riscy/riscy.runs/impl_1'
+    REMOTE_HWH='pdp-project/hardware/vivado/riscy/riscy.gen/sources_1/bd/riscv/hw_handoff/riscv.hwh'
     scp "${SCP_ARGS[@]}" \
         "$PDP_SERVER_USER@$PDP_SERVER_HOST:$REMOTE_BASE/riscv_wrapper.bit" \
         "$PDP_SERVER_USER@$PDP_SERVER_HOST:$REMOTE_BASE/riscv_wrapper.tcl" \

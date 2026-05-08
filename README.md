@@ -9,9 +9,13 @@ GitLab course repo; cloning + initialising the submodule pulls them in.
 
 > Course context, deadlines, baseline numbers, etc. → `CLAUDE.md`
 > Measured baseline (cycles, area, timing) → `BASELINE.md`
+> Post-impl baseline (full design, routed) → `baselines/post-impl-2026-05-06/README.md`
 > Static + dynamic profiling → `PROFILING.md`
 > Running task log → `PROGRESS.md`
-> Intermediate-report draft → `REPORT_INTERMEDIATE.md`
+> Intermediate-report draft (Brightspace Q1–Q5) → `REPORT_INTERMEDIATE.md`
+> State-of-the-art papers we cite → `references/README.md`
+> Working-text drafts the team has shared → `drafts/`
+> Generated bitstreams (gitignored, regenerable) → `artifacts/`
 > Profiling instrumentation snapshots → `profiling-instrumentation/`
 
 ## Layout
@@ -22,9 +26,21 @@ GitLab course repo; cloning + initialising the submodule pulls them in.
 ├── BASELINE.md                   # measured baseline numbers
 ├── PROFILING.md                  # static + dynamic profiling, methodology, projections
 ├── PROGRESS.md                   # running task log + deadlines + gotchas
-├── REPORT_INTERMEDIATE.md        # draft of the Brightspace intermediate report
+├── REPORT_INTERMEDIATE.md        # draft of the Brightspace intermediate report (Q1–Q5)
 ├── README.md                     # this file
 ├── credentials.example.txt       # copy → credentials.txt and fill in
+├── baselines/                    # frozen, dated measurement snapshots
+│   └── post-impl-2026-05-06/         # Rishi's full-design routed reports + screenshots
+├── references/                   # state-of-the-art papers we cite (with notes)
+│   ├── README.md
+│   ├── kassimi-2026-secure-zkne-dom.pdf   # TU Delft side-channel paper (Mottah Taouil)
+│   └── pan-2021-aes-coprocessor.pdf       # Wuhan U. super-instruction paper
+├── drafts/                       # team's working text, dated
+│   └── 2026-05-08-hruday-quiz-draft.txt
+├── artifacts/                    # generated bitstreams (gitignored, regenerable)
+│   ├── riscv_wrapper.bit
+│   ├── riscv.hwh
+│   └── riscv_wrapper.tcl
 ├── scripts/                      # helpers: server SSH, mount, Vivado, X2Go, fetch
 │   ├── _lib.sh                       # shared: loads credentials
 │   ├── setup-server-auth.sh          # one-time: push your SSH pubkey to the server
@@ -131,5 +147,5 @@ You should see the server hostname and the gitlab repo contents on the server.
 
 - **Never commit `credentials.txt`.** It's gitignored, but double-check `git status` before every push.
 - **Never share your gitlab PAT.** Each teammate creates their own.
-- The dev-server account `cese4040-24` is shared across all 4 of us — be considerate (don't kill X2Go sessions you don't recognize, log out via the GUI).
+- The dev-server account `cese4040-24` is shared across all 5 of us — be considerate (don't kill X2Go sessions you don't recognize, log out via the GUI).
 - This repo is **private**. If we ever make it public, scrub `CLAUDE.md` first (it mentions internal hostnames, the shared username, and Brightspace group context).
