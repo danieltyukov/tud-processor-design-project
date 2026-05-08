@@ -8,86 +8,71 @@ Group members: Daniel Tyukov, Rishi, Vishnu Karthik, Hruday Gowda, Sathya.
 
 ## Q1. What extension(s) and improvement(s) are you planning to implement?
 
-Mandatory items:
+The mandatory deliverables are the Zkne instructions `aes32esi` and `aes32esmi` in the CV32E40P ALU and decoder, plus a built-in LLVM loop-unroll pass on the AES middle-round loop. On top of these we propose two candidate group-specific improvements and will commit to one after consultation with the project supervisors.
 
-1. The Zkne instructions `aes32esi` and `aes32esmi` in the RISCY core (CV32E40P ALU + decoder).
-2. A built-in LLVM loop-unroll pass on the AES middle-round loop.
+**Option 1: Prevention of side-channel attack**
 
-Group-specific improvement: we propose two options and will commit to one after TA feedback and Prof. Mottah Taouil's reply on validation methodology.
+Making the `aes32esmi` implementation resilient to power side-channel attacks through Domain-Oriented Masking of the instruction datapath, so that no intermediate value in the hardware exposes key-dependent switching activity. This contribution is based on the work of Kassimi et al. in "Secure Implementation of RISC-V's Scalar Cryptography Extension Set."
 
-- **Option 1: side-channel-resilient AES via Domain-Oriented Masking**, following Kassimi et al. (2026) from this department.
-- **Option 2: a custom super-instruction under the `custom-0` opcode.** It fuses the four chained `aes32esmi` calls that compute one output word into a single instruction. Inspired by Pan et al. (2021).
+**Option 2: Custom instruction to execute multiple AES operations per instruction**
 
-Each option has its own validation pipeline. Running both inside six weeks would compromise both, so we commit to one.
+The Zkne `aes32esmi` instruction does exactly one byte's worth of work: one S-box, one partial MixColumns, one XOR. Computing one full output word requires four chained `aes32esmi` instructions, and a complete middle round needs sixteen of them. We plan to collapse each four-instruction chain into a single instruction that computes one full output word in one cycle. It takes the four state words as inputs and produces one output word directly.
+
+A final decision between the two candidates will be made following consultation with the project supervisors and an assessment of implementation feasibility within the remaining project timeline.
 
 ---
 
 ## Q2. What metrics will be used to evaluate the final design?
 
-Primary metric: cycle count for AES-128 ECB encryption of one 16-byte block, measured in behavioural simulation by `mem_snoop_match.CLK_COUNT` from fetch-enable to the `0xDEADBEEF` end sentinel. Baseline 59,560 cycles.
+**Option 1**
 
-Secondary metrics, all reported as absolute value plus delta against the baseline:
+The proposed side-channel-resilient design is planned to be validated using a multi-layer evaluation methodology combining formal verification, statistical leakage assessment, and practical attack analysis. Formal security verification is performed using tools like SILVER to assess probing and glitch-resistant security properties at the hardware level. Experimental leakage evaluation is conducted using Test Vector Leakage Assessment (TVLA), while practical resistance against power-analysis attacks is assessed through CPA and key-rank analysis. Together, these methods provide both theoretical and empirical validation of the design's side-channel resilience.
 
-- Functional correctness: ciphertext equals `fba50914 714bf41f 2e25aabe aaf9080f`.
-- `mix_columns` cycle share, from `mcycle` CSR brackets. Baseline 83.8 %.
-- Area in LUTs and registers, OOC and post-impl. Baseline 5,691 / 2,524 OOC, 10,171 / 8,522 post-impl.
-- Worst Negative Slack, OOC and post-impl. Baseline +5.513 ns OOC at 100 MHz, +28.306 ns post-impl at 20 MHz.
-- On-chip power from `report_power`. Baseline 1.419 W (1.256 W is the always-on PS7).
+To generate the power traces, two possible approaches can be considered. First, power traces may be estimated from generated `.vcd` files using the Hamming-distance leakage model, after which side-channel attacks can be performed in software. Alternatively, subject to approval and availability of the laboratory setup, empirical power traces may be collected using a hardware measurement setup, as reportedly arranged for previous projects.
 
-For Option 1 we additionally use TVLA, CPA, and key-rank analysis on simulated power traces extracted from `.vcd` waveforms via a Hamming-distance leakage model.
+**Option 2**
+
+Reduction in latency beyond the mandatory `aes32esi`/`aes32esmi` deliverables. We plan to compare the cycle count of the baseline (59,560 cycles), the `aes32esi`/`aes32esmi` implementation, and the custom instruction. We also plan to measure area to check for possible savings or expenditure in silicon. Functional correctness is verified every run by checking the produced ciphertext against the expected output `fba50914 714bf41f 2e25aabe aaf9080f`.
 
 ---
 
 ## Q3. Why have you chosen for these extension(s) / improvement(s)?
 
-The mandatory items target the measured hot path. `mix_columns` is 83.8 % of cycles in our baseline, with the inner software loop already inlined by the compiler. `aes32esmi` collapses that inner loop; loop-unrolling on top removes the surrounding overhead.
+**Option 1**
 
-Option 1 is justified because AES hardware that leaks key-dependent power is broken in any setting where an attacker can probe: IoT nodes, smart cards, secure elements. The honest limitation is that we don't have a ChipWhisperer, so our validation runs on simulated traces. We will report it as a simulation-based assessment, not real-silicon measurement.
+Side-channel resilience is essential because cryptographic hardware can leak sensitive information through physical effects such as power consumption, timing variations, or electromagnetic emissions, even when the underlying cryptographic algorithm is mathematically secure. Attackers can exploit this unintended leakage using techniques such as Differential Power Analysis (DPA) or Correlation Power Analysis (CPA) to recover secret keys. As hardware accelerators are increasingly deployed in security-critical applications including IoT devices, embedded systems, and secure communication platforms, protecting implementations against side-channel attacks has become a necessary requirement. Incorporating side-channel-resistant design techniques therefore improves the overall security and trustworthiness of the hardware implementation beyond conventional functional correctness.
 
-Option 2 is justified because even with Zkne in place, one output word of one round still costs four chained `aes32esmi` calls, so a full encryption costs 144 of them. Folding each chain of four into one instruction reduces the dynamic instruction count by 4x and removes register-file traffic between the four steps.
+**Option 2**
 
-We propose two options because each one has a distinct validation framework that we cannot reasonably set up in parallel. The TA's view on which option fits the course's intent, plus Prof. Mottah's view on whether our simulated Option-1 validation is rigorous enough, will decide the pick.
+The Zkne `aes32esmi` instruction does exactly one byte's worth of work: one S-box, one partial MixColumns, one XOR. Computing one full output word requires four chained `aes32esmi` instructions, and a complete middle round needs sixteen of them. AES and other encryption methods are standard in modern communication systems, and for faster communication, low-latency encryption modules are indispensable.
 
 ---
 
 ## Q4. Methodology: tasks, ownership, integration / baseline / validation
 
-The team agreed (2026-05-08 poll) to split into three sub-teams: RTL (2 people), Validation (2 people), Compiler (1 person). Specific names are assigned via the team poll closing tonight.
+We split the five of us into three sub-teams (provisional, individuals not yet assigned to specific objectives):
+
+- **RTL team (2 people)**: implement and integrate the required RTL depending on the chosen option.
+- **Validation team (2 people)**: set up the validation framework and perform validation. The exact objective changes based on the chosen option.
+- **Compiler team (1 person)**: run compiler optimisations including instruction scheduling and loop optimisations.
 
 **A) Integration**
 
-- A1: `aes32esi` decode + execute in `cv32e40p_decoder.sv` and `cv32e40p_alu.sv` (RTL)
-- A2: `aes32esmi` decode + execute in the same files (RTL)
-- A3: Verify GAS encoding; expose the new instructions to C via `asm volatile` (Compiler)
-- A4: Add LLVM intrinsics for both Zkne ops; rebuild LLVM in `$HOME` (Compiler)
-- A5: Wire LLVM's `LoopUnrollPass` to the middle-round loop (Compiler)
-- A6: [Opt 2] Super-instruction RTL under the `custom-0` opcode (RTL)
-- A7: [Opt 2] Compiler support for the super-instruction (Compiler)
-- A8: [Opt 1] SCA validation framework: `.vcd` extract, Hamming-distance traces, TVLA / CPA / key-rank scripts (Validation)
-- A9: [Opt 1] DOM-protected variant of `aes32esi`/`aes32esmi` (Validation)
-- A10: [Opt 1] Compiler support for the protected variant (Compiler)
+The Zkne instructions `aes32esi` and `aes32esmi` are added to the CV32E40P ALU and decoder. The RTL team handles the SBox and partial-MixColumns network in the ALU. The compiler team exposes them to C through inline asm first, then adds proper LLVM intrinsics once the toolchain is rebuilt in `$HOME` on the server. The compiler team also wires LLVM's `LoopUnrollPass` to the AES middle-round loop. Under Option 1, the validation team adds a DOM-protected variant of the same instructions. Under Option 2, the RTL team adds a custom instruction under the `custom-0` opcode that fuses four chained `aes32esmi` calls into one.
 
-A1-A5 always run. We execute A6-A7 or A8-A10 depending on the chosen option.
+**B) Definition of baseline**
 
-**B) Baseline (done in Phase 1)**
+Phase 1 produced the baseline:
 
-- B1: Cycle baseline: 59,560 cycles, ciphertext PASSED.
-- B2: OOC synthesis: 5,691 LUTs / 2,524 registers / 5 DSPs / WNS +5.513 ns at 100 MHz.
-- B3: Post-implementation (full `riscv_wrapper`, routed): 10,171 LUTs / 8,522 registers / 16 BRAMs / 5 DSPs / WNS +28.306 ns at 20 MHz / 1.419 W on-chip power.
-- B4: Static profiling from `objdump`: `mix_columns` 88 % of static instructions.
-- B5: Dynamic profiling via `mcycle` brackets: `mix_columns` 83.8 % of measured cycles.
+- Cycle baseline from behavioural simulation: 59,560 cycles, ciphertext PASSED.
+- OOC synthesis (core only): 5,691 LUTs, 2,524 registers, 5 DSPs, WNS +5.513 ns at 100 MHz.
+- Post-implementation, full `riscv_wrapper`, routed: 10,171 LUTs, 8,522 registers, 16 BRAMs, 5 DSPs, WNS +28.306 ns at 20 MHz, 1.419 W on-chip power.
+- Static profiling: `mix_columns` is 88 % of static instructions.
+- Dynamic profiling via `mcycle` brackets: `mix_columns` is 83.8 % of measured cycles.
 
-**C) Validation and measurements**
+**C) Validation / measurements**
 
-- C1: Re-run baseline AES sim after every RTL change, confirm `Test PASSED`, record cycles.
-- C2: Re-run OOC synth, capture LUT / register / DSP delta and WNS.
-- C3: Generate full bitstream after each clean sim+synth pair. (Pipeline already proven: 4,045,673 B `riscv_wrapper.bit` built 2026-05-08.)
-- C4: Upload to PYNQ-Z1, run `base_riscy.ipynb`, confirm wall-clock ciphertext matches sim.
-- C5: Re-run dynamic profiling after `aes32esmi` lands.
-- C6: Final benchmark: cycles + ciphertext on multiple AES test vectors.
-- C7: [Opt 1] TVLA on simulated traces from the unprotected baseline (sanity check that the framework detects leakage).
-- C8: [Opt 1] TVLA, CPA, and key-rank on the protected variant.
-- C9: Final write-up, slides, demo, archive.
+After every RTL change we re-run the AES simulation, confirm the ciphertext, and record the cycle count against 59,560. We re-run OOC synthesis to capture LUT, register, DSP, and WNS deltas. We generate a fresh bitstream and load it on the PYNQ-Z1 to confirm the wall-clock ciphertext matches simulation. Under Option 1 we additionally run TVLA on the unprotected baseline as a sanity check that the framework detects leakage, then TVLA, CPA, and key-rank on the protected variant. Under Option 2 we benchmark the cycle count of the baseline, the `aes32esi`/`aes32esmi`-only version, and the custom-instruction version, plus an area sweep to check the silicon cost.
 
 ---
 
