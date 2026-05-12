@@ -455,6 +455,7 @@ module cv32e40p_id_stage
   logic [ 4:0] bmask_b_id;
   logic [ 1:0] imm_vec_ext_id;
   logic [ 4:0] mult_imm_id;
+  logic        aes_insn_id;
 
   logic [ 1:0] alu_vec_mode;
   logic        scalar_replication;
@@ -778,7 +779,8 @@ module cv32e40p_id_stage
     endcase
   end
 
-  assign imm_vec_ext_id = imm_vu_type[1:0];
+  // For Zkne AES32 instructions bs lives in instr[31:30], not the vu-immediate field
+  assign imm_vec_ext_id = aes_insn_id ? instr[31:30] : imm_vu_type[1:0];
 
 
   always_comb begin
@@ -1068,7 +1070,10 @@ module cv32e40p_id_stage
       .ctrl_transfer_target_mux_sel_o(ctrl_transfer_target_mux_sel),
 
       // HPM related control signals
-      .mcounteren_i(mcounteren_i)
+      .mcounteren_i(mcounteren_i),
+
+      // Zkne byte-select routing
+      .aes_insn_o(aes_insn_id)
 
   );
 

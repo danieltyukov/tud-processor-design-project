@@ -51,6 +51,7 @@ module cv32e40p_alu
     output logic ready_o,
     input  logic ex_ready_i
 );
+  // imm_vec_ext_i doubles as the 2-bit byte select (bs) for Zkne AES32 instructions
 
   logic [31:0] operand_a_rev;
   logic [31:0] operand_a_neg;
@@ -917,6 +918,25 @@ module cv32e40p_alu
   );
 
   ////////////////////////////////////////////////////////
+  //  _  __               _____  _____    _  _         //
+  // | |/ / ____   ___   | ____||___ /   | || |        //
+  // |   / |_  /  |_  |  |  _|    |_ \   | || |_       //
+  // | . \  / /    / /   | |___  ___) |  |__   _|      //
+  // |_|\_|/___|  /___|  |_____||____/      |_|        //
+  //                                                    //
+  ////////////////////////////////////////////////////////
+
+  logic [31:0] aes32_result;
+
+  cv32e40p_zkne zkne_i (
+      .operator_i  (operator_i),
+      .operand_a_i (operand_a_i),
+      .operand_b_i (operand_b_i),
+      .bs_i        (imm_vec_ext_i),
+      .result_o    (aes32_result)
+  );
+
+  ////////////////////////////////////////////////////////
   //   ____                 _ _     __  __              //
   //  |  _ \ ___  ___ _   _| | |_  |  \/  |_   ___  __  //
   //  | |_) / _ \/ __| | | | | __| | |\/| | | | \ \/ /  //
@@ -976,6 +996,9 @@ module cv32e40p_alu
 
       // Division Unit Commands
       ALU_DIV, ALU_DIVU, ALU_REM, ALU_REMU: result_o = result_div;
+
+      // Zkne AES32 encryption instructions
+      ALU_AES32ESI, ALU_AES32ESMI: result_o = aes32_result;
 
       default: ;  // default case to suppress unique warning
     endcase

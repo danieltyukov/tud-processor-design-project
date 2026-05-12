@@ -49,7 +49,16 @@ module zynq_tb;
     // 0x4000_0000 - 0x4000_7FFF: Instruction memory
     // 0x4200_0000 - 0x4200_7FFF: Data memory
     // - 0x4200_2000: [31:0]: End sequence
-    // - 0x4200_2004: [31:0]: Ciphertext matches expected
+    // - 0x4200_2004: [31:0]: Ciphertext matches expected  (0xCAFEBABE=pass)
+    // - 0x4200_2008: [31:0]: Zkne hw test pass/fail       (0xCAFEBABE=pass)
+    // - 0x4200_2010: [31:0]: aes32esi  result bs=0
+    // - 0x4200_2014: [31:0]: aes32esi  result bs=1
+    // - 0x4200_2018: [31:0]: aes32esi  result bs=2
+    // - 0x4200_201C: [31:0]: aes32esi  result bs=3
+    // - 0x4200_2020: [31:0]: aes32esmi result bs=0
+    // - 0x4200_2024: [31:0]: aes32esmi result bs=1
+    // - 0x4200_2028: [31:0]: aes32esmi result bs=2
+    // - 0x4200_202C: [31:0]: aes32esmi result bs=3
     // - 0x4200_2030: [31:0]: Expected ciphertext [0]
     // - 0x4200_2034: [31:0]: Expected ciphertext [1]
     // - 0x4200_2038: [31:0]: Expected ciphertext [2]
@@ -180,35 +189,40 @@ task main_core_execution();
         $display("Calculated ciphertext (%0h): %0h", zynq_tb.result_addr + (32'h4*i), zynq_tb.read_data[i]);
     end
 
-    // ------------------------------------------------------------------
-    // Per-function cycle profile (Task #6, dynamic profiling)
-    // Addresses written by main.c at end of run (see software/main.c):
-    //   0x4200_2060: expand_key total
-    //   0x4200_2064: aes128_encrypt_block total
-    //   0x4200_2068: sub_bytes summed (10 calls)
-    //   0x4200_206c: shift_rows summed (10 calls)
-    //   0x4200_2070: mix_columns summed (9 calls)
-    //   0x4200_2074: add_round_key summed (11 calls)
-    // ------------------------------------------------------------------
-    $display("---- Per-function cycle profile (dynamic) ----");
-    zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(zynq_tb.base_addr_data + 32'h2060, 4, zynq_tb.end_read_data, zynq_tb.resp);
-    $display("expand_key cycles           : %0d", zynq_tb.end_read_data);
-    zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(zynq_tb.base_addr_data + 32'h2064, 4, zynq_tb.end_read_data, zynq_tb.resp);
-    $display("aes128_encrypt_block cycles : %0d", zynq_tb.end_read_data);
-    zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(zynq_tb.base_addr_data + 32'h2068, 4, zynq_tb.end_read_data, zynq_tb.resp);
-    $display("sub_bytes total cycles      : %0d", zynq_tb.end_read_data);
-    zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(zynq_tb.base_addr_data + 32'h206c, 4, zynq_tb.end_read_data, zynq_tb.resp);
-    $display("shift_rows total cycles     : %0d", zynq_tb.end_read_data);
-    zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(zynq_tb.base_addr_data + 32'h2070, 4, zynq_tb.end_read_data, zynq_tb.resp);
-    $display("mix_columns total cycles    : %0d", zynq_tb.end_read_data);
-    zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(zynq_tb.base_addr_data + 32'h2074, 4, zynq_tb.end_read_data, zynq_tb.resp);
-    $display("add_round_key total cycles  : %0d", zynq_tb.end_read_data);
-    $display("----------------------------------------------");
-
     if(zynq_tb.read_data == zynq_tb.expected_datas) begin
        $display ("Test PASSED");
     end else begin
        $error ("Test FAILED");
+    end
+
+    // -----------------------------------------------------------------------
+    // Zkne hardware instruction test results
+    // -----------------------------------------------------------------------
+    begin
+        reg [31:0] zkne_status;
+        reg [31:0] zkne_data;
+
+        zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(
+            zynq_tb.base_addr_data + 32'h2008, 4, zkne_status, zynq_tb.resp);
+        if (zkne_status == 32'hCAFEBABE) begin
+            $display ("Zkne hw test PASSED");
+        end else begin
+            $error ("Zkne hw test FAILED (status=%0h)", zkne_status);
+        end
+
+        $display ("--- aes32esi results (rs1=0x12345678, rs2=0xAABBCCDD) ---");
+        for (int i = 0; i < 4; i++) begin
+            zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(
+                zynq_tb.base_addr_data + 32'h2010 + (32'h4 * i), 4, zkne_data, zynq_tb.resp);
+            $display ("  aes32esi  bs=%0d : %08h", i, zkne_data);
+        end
+
+        $display ("--- aes32esmi results (rs1=0x12345678, rs2=0xAABBCCDD) ---");
+        for (int i = 0; i < 4; i++) begin
+            zynq_tb.zynq_sys.riscv_i.processing_system7_0.inst.read_data(
+                zynq_tb.base_addr_data + 32'h2020 + (32'h4 * i), 4, zkne_data, zynq_tb.resp);
+            $display ("  aes32esmi bs=%0d : %08h", i, zkne_data);
+        end
     end
     #400;
 

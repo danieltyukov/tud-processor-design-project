@@ -150,7 +150,10 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
   output logic [1:0]  ctrl_transfer_target_mux_sel_o,        // jump target selection
 
   // HPM related control signals
-  input  logic [31:0] mcounteren_i
+  input  logic [31:0] mcounteren_i,
+
+  // Zkne AES32 byte-select routing signal
+  output logic        aes_insn_o         // 1 when aes32esi/esmi decoded (bs = instr[31:30])
 );
 
   // write enable/request control
@@ -276,6 +279,8 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
 
     is_clpx_o                   = 1'b0;
     is_subrot_o                 = 1'b0;
+
+    aes_insn_o                  = 1'b0;
 
     mret_dec_o                  = 1'b0;
     uret_dec_o                  = 1'b0;
@@ -572,7 +577,22 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
         rega_used_o         = 1'b1;
 
         unique case (instr_rdata_i[14:12])
-          3'b000: alu_operator_o = ALU_ADD;  // Add Immediate
+          3'b000: begin
+            // aes32esi / aes32esmi: instr[29:25] distinguishes them from ADDI
+            if (instr_rdata_i[29:25] == 5'b10001) begin
+              alu_op_b_mux_sel_o = OP_B_REGB_OR_FWD;
+              regb_used_o        = 1'b1;
+              aes_insn_o         = 1'b1;
+              alu_operator_o     = ALU_AES32ESI;
+            end else if (instr_rdata_i[29:25] == 5'b10011) begin
+              alu_op_b_mux_sel_o = OP_B_REGB_OR_FWD;
+              regb_used_o        = 1'b1;
+              aes_insn_o         = 1'b1;
+              alu_operator_o     = ALU_AES32ESMI;
+            end else begin
+              alu_operator_o = ALU_ADD;  // standard ADDI
+            end
+          end
           3'b010: alu_operator_o = ALU_SLTS; // Set to one if Lower Than Immediate
           3'b011: alu_operator_o = ALU_SLTU; // Set to one if Lower Than Immediate Unsigned
           3'b100: alu_operator_o = ALU_XOR;  // Exclusive Or with Immediate
