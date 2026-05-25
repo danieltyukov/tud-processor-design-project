@@ -72,3 +72,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# --- side-channel rig: trace CSVs + waves are large & regenerable; keep PNGs ---
+sidechannel/out/*.csv
+sidechannel/out/*.vcd
