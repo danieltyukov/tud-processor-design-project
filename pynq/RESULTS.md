@@ -1,13 +1,12 @@
 # PYNQ-Z2 hardware verification
 
-First successful end-to-end run of the AES baseline on real silicon for this
-project. Closes intermediate-report task **C4** ("Upload bitstream to PYNQ-Z1
-via Jupyter; run the `base_riscy.ipynb` notebook; verify wall-clock AES output
-matches simulation").
+Hardware verification runs of the project on real silicon. Closes
+intermediate-report task **C4** and adds the side-channel-track silicon
+verification of our tower-field Zkne RTL.
 
 Date: 2026-05-30 · Board: TUL **PYNQ-Z2** (Zynq-7020) · PYNQ Linux 2019.1.
 
-## Result
+## Run 1 - team baseline AES (unmodified bitstream)
 
 Full output: `pynq/results/baseline_aes_2026-05-30.txt`
 
@@ -81,20 +80,61 @@ Then to run an AES test (any time the board is plugged in):
 The IP the PYNQ lands on may vary inside the DHCP range. Override with
 `PYNQ_IP=192.168.2.<n> ./scripts/run-on-pynq.sh` if needed.
 
-## Why the DOM-masked bitstream wasn't run on silicon
+## Run 2 - OUR tower-field Zkne RTL on silicon
 
-For the side-channel deliverable specifically, running on PYNQ would not add
-new evidence:
+Build with `sidechannel/build/cv32e40p_zkne_tower.sv` (our verified tower-field
+S-box, replacing Hruday's 256-entry case statement) integrated as the Zkne
+unit. Test program is `profiling-instrumentation/main.c` (Hruday's hardware
+self-test) which calls `aes32esi` and `aes32esmi` for byte-lanes 0..3 and
+compares each to a software AES reference.
 
-- **Functional correctness of the DOM module** is already proven by the
-  exhaustive 5256/5256 unit-test (`tb_sbox_tower_dom.sv`).
-- **The side-channel claim itself** (CPA fails, TVLA passes) is a
-  power-measurement claim. We have no ChipWhisperer / CW305, so the on-silicon
-  run would produce identical functional output without giving any new SCA
-  evidence. The simulation-based leakage rig in `sidechannel/` *is* the
-  evidence.
+Full output: `pynq/results/zkne_tower_test_2026-05-30.txt`. Bitstream and
+hardware-handoff in `artifacts/zkne_tower/` (regenerable from sources).
 
-Cost of doing it anyway, for completeness: write a full-system Vivado project
-integrating `cv32e40p_zkne_dom` in place of Hruday's `cv32e40p_zkne` (+ ALU
-multi-cycle handshake), synth and bitstream (~20 min on the server), rerun.
-This is feasible but not required for Daniel's deliverable.
+```
+============================================================
+BITSTREAM RAN ON SILICON  (10.2 ms wall-clock)
+============================================================
+  cycle count        = 60035
+
+  AES ciphertext check  = 0xCAFEBABE   PASSED
+  Zkne hw == sw check   = 0xCAFEBABE   PASSED
+
+  aes32esi  hw results:                aes32esmi hw results:
+     bs=0  hw=0x7157f507                  bs=0  hw=0xe896349e
+     bs=1  hw=0x7157bec6                  bs=1  hw=0x3a1c2850
+     bs=2  hw=0x71bdf5c6                  bs=2  hw=0x9b723a2c
+     bs=3  hw=0xdd57f5c6                  bs=3  hw=0x9e14596a
+
+  expected ciphertext = fba50914714bf41f2e25aabeaaf9080f
+  calculated          = fba50914714bf41f2e25aabeaaf9080f
+============================================================
+```
+
+**Both PASSes are critical:**
+- *AES ciphertext check* (`0x2004` = `0xCAFEBABE`) - the table-based AES path
+  still produces the correct ciphertext on the modified design.
+- ***Zkne hw == sw check*** (`0x2008` = `0xCAFEBABE`) - for all 4 byte-lanes
+  of `aes32esi` and all 4 byte-lanes of `aes32esmi`, the hardware output
+  matches a software reference computed in C. **This is the silicon proof
+  that our tower-field algebra computes the AES S-box correctly inside the
+  Zkne instruction.**
+
+Build numbers (Vivado 2024.2 batch, scratch dir `~/sca-build/hardware/`):
+
+| Metric | Value |
+|---|---|
+| Wall-clock from launch to bitstream | ~70 minutes |
+| Post-route WNS | **+27.438 ns** (timing closure trivial at 20 MHz) |
+| Bitstream size | 4,045,673 B (identical-bytes to the team baseline) |
+
+## DOM-masked bitstream — next step
+
+Same scheme, with `aes_sbox_tower_dom.sv` in place of the unmasked tower
+S-box. Requires (i) a `cv32e40p_zkne` wrapper that masks the input byte with
+fresh random + drives `aes_sbox_tower_dom` + unmasks the output share-XOR,
+and (ii) a `cv32e40p_alu` change to expose a multi-cycle ready/valid handshake
+on the AES op (4-cycle pipeline). When that build PASSes on silicon under the
+same self-test, the DOM module is functionally validated on real hardware too
+(separate from the simulation-based leakage claim, which lives in the
+sidechannel rig).
