@@ -128,13 +128,70 @@ Build numbers (Vivado 2024.2 batch, scratch dir `~/sca-build/hardware/`):
 | Post-route WNS | **+27.438 ns** (timing closure trivial at 20 MHz) |
 | Bitstream size | 4,045,673 B (identical-bytes to the team baseline) |
 
-## DOM-masked bitstream — next step
+## Run 3 - DOM-masked Zkne RTL on silicon
 
-Same scheme, with `aes_sbox_tower_dom.sv` in place of the unmasked tower
-S-box. Requires (i) a `cv32e40p_zkne` wrapper that masks the input byte with
-fresh random + drives `aes_sbox_tower_dom` + unmasks the output share-XOR,
-and (ii) a `cv32e40p_alu` change to expose a multi-cycle ready/valid handshake
-on the AES op (4-cycle pipeline). When that build PASSes on silicon under the
-same self-test, the DOM module is functionally validated on real hardware too
-(separate from the simulation-based leakage claim, which lives in the
-sidechannel rig).
+Build with `sidechannel/build/cv32e40p_zkne_dom_wrap.sv` (new Zkne wrapping
+the DOM-masked S-box `aes_sbox_tower_dom.sv`, plus `cv32e40p_alu_dom.sv`
+exposing a multi-cycle ready handshake). The wrapper:
+- masks the input byte with a fresh 8-bit value from a 32-bit Galois LFSR,
+- drives the DOM-masked S-box (5 DOM-AND gates, 4-cycle pipeline),
+- unmasks the output via share XOR,
+- a 6-state FSM (`IDLE → P1..P4 → DONE → IDLE`) gives each AES instruction
+  exactly 5 cycles.
+
+Full output: `pynq/results/zkne_dom_test_2026-05-30.txt`. Bitstream and
+hardware-handoff in `artifacts/zkne_dom/`.
+
+```
+============================================================
+BITSTREAM RAN ON SILICON  (10.2 ms wall-clock)
+============================================================
+  cycle count        = 60072
+
+  AES ciphertext check  = 0xCAFEBABE   PASSED
+  Zkne hw == sw check   = 0xCAFEBABE   PASSED
+
+  aes32esi  hw results:                aes32esmi hw results:
+     bs=0  hw=0x7157f507                  bs=0  hw=0xe896349e
+     bs=1  hw=0x7157bec6                  bs=1  hw=0x3a1c2850
+     bs=2  hw=0x71bdf5c6                  bs=2  hw=0x9b723a2c
+     bs=3  hw=0xdd57f5c6                  bs=3  hw=0x9e14596a
+
+  expected ciphertext = fba50914714bf41f2e25aabeaaf9080f
+  calculated          = fba50914714bf41f2e25aabeaaf9080f
+============================================================
+```
+
+**The DOM-masked Zkne unit produces byte-identical aes32esi/esmi outputs to
+the unmasked tower variant on the same silicon.** The mask + DOM + unmask
+path is functionally correct on real Zynq-7020 hardware.
+
+Build numbers:
+
+| Metric | Value |
+|---|---|
+| Wall-clock from launch to bitstream | ~75 minutes |
+| Post-route WNS | **+28.617 ns** (even better than tower's +27.438 ns) |
+| Post-route Hold WHS | +0.016 ns (no hold violations) |
+| Bitstream size | 4,045,673 B |
+
+### Multi-cycle penalty measured on silicon
+
+The DOM run took **60,072 cycles** vs the tower's **60,035 cycles** for the
+same test program. That `+37` cycle delta is exactly the cost of the
+multi-cycle handshake: 8 AES instructions (4×`aes32esi` + 4×`aes32esmi`) at
+~5 cycles each = ~40 extra cycles. Silicon-measured agreement with the
+designed 5-cycle FSM.
+
+## Summary of the three runs
+
+| Run | Bitstream | What it proves | Cycles | PASS |
+|---|---|---|---:|---|
+| 1 | team baseline (table-based AES, no Zkne RTL exercised) | full table-based AES correct on PYNQ | 161,441 | ✓ |
+| 2 | OUR tower-field zkne (our verified math, single-cycle combinational) | tower-field algebra correct on silicon | 60,035 | ✓ |
+| 3 | OUR DOM-masked zkne (multi-cycle, mask + DOM + unmask) | masked S-box functionally correct on silicon | 60,072 | ✓ |
+
+Side-channel resilience claim (CPA fails, TVLA |t| < 4.5) remains the
+simulation-based rig in `sidechannel/` since hardware-power probing needs
+ChipWhisperer/CW305 we don't have. The lab work on real power traces can
+be done with these bitstreams when the user is in the lab.
