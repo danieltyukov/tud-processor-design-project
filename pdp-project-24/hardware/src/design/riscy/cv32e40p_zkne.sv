@@ -156,10 +156,10 @@ module cv32e40p_zkne
   // aes32esmi: rd = rs1 ^ ROL32(MixColumn(so), bs*8)
   // Column contribution vector: coeff [0x03, 0x01, 0x01, 0x02] * so
   //-------------------------------------------------------------------------
-  assign mc0 = xt2(so) ^ so;   // byte 0: coefficient 0x03
+  assign mc0 = xt2(so);        // byte 0: coefficient 0x02
   assign mc1 = so;              // byte 1: coefficient 0x01
   assign mc2 = so;              // byte 2: coefficient 0x01
-  assign mc3 = xt2(so);        // byte 3: coefficient 0x02
+  assign mc3 = xt2(so) ^ so;   // byte 3: coefficient 0x03
   assign mixcol_word = {mc3, mc2, mc1, mc0};
 
   always_comb
@@ -181,3 +181,4 @@ module cv32e40p_zkne
     endcase
 
 endmodule
+

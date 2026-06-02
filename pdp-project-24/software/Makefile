@@ -41,7 +41,7 @@ SREC_OBJS := $(OUTPUT_DIR)/soft.srec $(OUTPUT_DIR)/acc.srec
 ELF_OBJS := $(OUTPUT_DIR)/soft.elf $(OUTPUT_DIR)/acc.elf
 
 LINKER_SCRIPT := link.common.ld
-LLVM_LDFLAGS := -Wl,--build-id=none -Wl,-Map=aes.map -T $(LINKER_SCRIPT) -lc -nostdlib
+LLVM_LDFLAGS := -fuse-ld=lld -Wl,--build-id=none -Wl,-Map=aes.map -T $(LINKER_SCRIPT) -lc -nostdlib
 
 # Create output directory
 $(shell mkdir -p $(OUTPUT_DIR))
