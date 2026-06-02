@@ -120,10 +120,12 @@ module cv32e40p_zkne
     endcase
 
   // ---- aes32esmi MixColumns single-byte contribution then ROL32 ----
-  wire [7:0] mc0 = xt2(so) ^ so;   // 0x03 * so
-  wire [7:0] mc1 = so;             // 0x01 * so
-  wire [7:0] mc2 = so;             // 0x01 * so
-  wire [7:0] mc3 = xt2(so);        // 0x02 * so
+  // MixCol bytes per RISC-V Zkne spec: coefficients are [0x02, 0x01, 0x01, 0x03]
+  // from LSB (mc0) to MSB (mc3). Hruday's original RTL had this swapped.
+  wire [7:0] mc0 = xt2(so);        // byte 0 (LSB): coefficient 0x02
+  wire [7:0] mc1 = so;             // byte 1:       coefficient 0x01
+  wire [7:0] mc2 = so;             // byte 2:       coefficient 0x01
+  wire [7:0] mc3 = xt2(so) ^ so;   // byte 3 (MSB): coefficient 0x03
   wire [31:0] mixcol_word = {mc3, mc2, mc1, mc0};
 
   logic [31:0] rol_mixed;

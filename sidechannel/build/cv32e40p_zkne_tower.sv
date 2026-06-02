@@ -149,10 +149,12 @@ module cv32e40p_zkne
       2'b11: so_placed = {        so, 24'b0};
     endcase
 
-  assign mc0 = xt2(so) ^ so;
-  assign mc1 = so;
-  assign mc2 = so;
-  assign mc3 = xt2(so);
+  // MixCol bytes per RISC-V Zkne spec: coefficients are [0x02, 0x01, 0x01, 0x03]
+  // from LSB (mc0) to MSB (mc3). The original Hruday RTL had this swapped.
+  assign mc0 = xt2(so);        // byte 0 (LSB): coefficient 0x02
+  assign mc1 = so;             // byte 1:       coefficient 0x01
+  assign mc2 = so;             // byte 2:       coefficient 0x01
+  assign mc3 = xt2(so) ^ so;   // byte 3 (MSB): coefficient 0x03
   assign mixcol_word = {mc3, mc2, mc1, mc0};
 
   always_comb
