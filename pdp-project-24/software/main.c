@@ -2,37 +2,6 @@
 #include <stdint.h>
 #include <string.h>
 
-// ============================================================================
-//  PROFILING INSTRUMENTATION (Task #6 — dynamic per-function cycle profile)
-// ----------------------------------------------------------------------------
-//  Reads the M-mode cycle counter (mcycle) before/after each AES phase.
-//  Accumulates per-phase deltas into volatile globals so the compiler cannot
-//  hoist them out of the loop. The "memory" clobber on the csrr fences the
-//  optimizer so loads/stores of state[] aren't reordered across measurement
-//  windows.
-//
-//  Output addresses (data BRAM, read by zynq_tb.sv after the sentinel):
-//    0x102060 : expand_key total cycles
-//    0x102064 : aes128_encrypt_block total cycles (one block)
-//    0x102068 : sub_bytes summed across all 10 calls
-//    0x10206c : shift_rows summed across all 10 calls
-//    0x102070 : mix_columns summed across all 9 calls
-//    0x102074 : add_round_key summed across all 11 calls
-// ============================================================================
-
-static inline uint32_t rdcycle(void) {
-    uint32_t c;
-    asm volatile ("csrr %0, mcycle" : "=r"(c) :: "memory");
-    return c;
-}
-
-static volatile uint32_t cycles_expand_key           = 0;
-static volatile uint32_t cycles_aes_encrypt_block    = 0;
-static volatile uint32_t cycles_sub_bytes_total      = 0;
-static volatile uint32_t cycles_shift_rows_total     = 0;
-static volatile uint32_t cycles_mix_columns_total    = 0;
-static volatile uint32_t cycles_add_round_key_total  = 0;
-
 // S-box for SubBytes (precomputed substitution table)
 static const uint8_t sbox[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
@@ -136,65 +105,112 @@ void add_round_key(uint8_t *state, uint8_t *round_key) {
     }
 }
 
-// Single block AES-128 encryption — INSTRUMENTED for per-phase profiling
-void aes128_encrypt_block(uint8_t *plaintext, uint8_t *round_keys, uint8_t *ciphertext) {
-    uint32_t enc_t0 = rdcycle();
-    uint32_t t0, t1;
-
-    uint8_t state[16];
-    memcpy(state, plaintext, 16);
-
-    // Initial round (AddRoundKey only)
-    t0 = rdcycle();
-    add_round_key(state, round_keys);
-    t1 = rdcycle();
-    cycles_add_round_key_total += (t1 - t0);
-
-    // Main rounds (1 to 9)
-    for (int round = 1; round < 10; round++) {
-        t0 = rdcycle();
-        sub_bytes(state);
-        t1 = rdcycle();
-        cycles_sub_bytes_total += (t1 - t0);
-
-        t0 = rdcycle();
-        shift_rows(state);
-        t1 = rdcycle();
-        cycles_shift_rows_total += (t1 - t0);
-
-        t0 = rdcycle();
-        mix_columns(state);
-        t1 = rdcycle();
-        cycles_mix_columns_total += (t1 - t0);
-
-        t0 = rdcycle();
-        add_round_key(state, &round_keys[round * 16]);
-        t1 = rdcycle();
-        cycles_add_round_key_total += (t1 - t0);
+// Execute aes32esi hardware instruction for the given bs (0-3)
+static uint32_t hw_aes32esi(uint32_t rs1, uint32_t rs2, int bs) {
+    uint32_t rd = 0;
+    switch (bs) {
+    case 0: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x22B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    case 1: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x62B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    case 2: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xA2B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    default: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xE2B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
     }
-
-    // Final round (10) — skips MixColumns by design
-    t0 = rdcycle();
-    sub_bytes(state);
-    t1 = rdcycle();
-    cycles_sub_bytes_total += (t1 - t0);
-
-    t0 = rdcycle();
-    shift_rows(state);
-    t1 = rdcycle();
-    cycles_shift_rows_total += (t1 - t0);
-
-    t0 = rdcycle();
-    add_round_key(state, &round_keys[10 * 16]);
-    t1 = rdcycle();
-    cycles_add_round_key_total += (t1 - t0);
-
-    memcpy(ciphertext, state, 16);
-
-    cycles_aes_encrypt_block = rdcycle() - enc_t0;
+    return rd;
 }
 
-// AES-128 ECB encryption (no padding) — INSTRUMENTED for expand_key timing
+// Execute aes32esmi hardware instruction for the given bs (0-3)
+static uint32_t hw_aes32esmi(uint32_t rs1, uint32_t rs2, int bs) {
+    uint32_t rd = 0;
+    switch (bs) {
+    case 0: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x26B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    case 1: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x66B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    case 2: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xA6B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    default: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xE6B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
+    }
+    return rd;
+}
+
+// Single block AES-128 encryption
+void aes128_encrypt_block(uint8_t *plaintext, uint8_t *round_keys, uint8_t *ciphertext) {
+
+    uint32_t s0, s1, s2, s3;
+    uint32_t *pt = (uint32_t *)plaintext;
+    s0 = pt[0]; s1 = pt[1]; s2 = pt[2]; s3 = pt[3];
+
+    uint32_t *rk = (uint32_t *)round_keys;
+
+    // Initial AddRoundKey
+    s0 ^= rk[0]; s1 ^= rk[1]; s2 ^= rk[2]; s3 ^= rk[3];
+
+    // Main rounds 1-9 using aes32esmi
+    for (int round = 1; round < 10; round++) {
+        uint32_t n0, n1, n2, n3;
+
+        n0 = hw_aes32esmi(0,  s0, 0);
+        n0 = hw_aes32esmi(n0, s1, 1);
+        n0 = hw_aes32esmi(n0, s2, 2);
+        n0 = hw_aes32esmi(n0, s3, 3);
+
+        n1 = hw_aes32esmi(0,  s1, 0);
+        n1 = hw_aes32esmi(n1, s2, 1);
+        n1 = hw_aes32esmi(n1, s3, 2);
+        n1 = hw_aes32esmi(n1, s0, 3);
+
+        n2 = hw_aes32esmi(0,  s2, 0);
+        n2 = hw_aes32esmi(n2, s3, 1);
+        n2 = hw_aes32esmi(n2, s0, 2);
+        n2 = hw_aes32esmi(n2, s1, 3);
+
+        n3 = hw_aes32esmi(0,  s3, 0);
+        n3 = hw_aes32esmi(n3, s0, 1);
+        n3 = hw_aes32esmi(n3, s1, 2);
+        n3 = hw_aes32esmi(n3, s2, 3);
+
+        rk += 4;
+        s0 = n0 ^ rk[0];
+        s1 = n1 ^ rk[1];
+        s2 = n2 ^ rk[2];
+        s3 = n3 ^ rk[3];
+    }
+
+    // Final round using aes32esi
+    uint32_t n0, n1, n2, n3;
+
+    n0 = hw_aes32esi(0,  s0, 0);
+    n0 = hw_aes32esi(n0, s1, 1);
+    n0 = hw_aes32esi(n0, s2, 2);
+    n0 = hw_aes32esi(n0, s3, 3);
+
+    n1 = hw_aes32esi(0,  s1, 0);
+    n1 = hw_aes32esi(n1, s2, 1);
+    n1 = hw_aes32esi(n1, s3, 2);
+    n1 = hw_aes32esi(n1, s0, 3);
+
+    n2 = hw_aes32esi(0,  s2, 0);
+    n2 = hw_aes32esi(n2, s3, 1);
+    n2 = hw_aes32esi(n2, s0, 2);
+    n2 = hw_aes32esi(n2, s1, 3);
+
+    n3 = hw_aes32esi(0,  s3, 0);
+    n3 = hw_aes32esi(n3, s0, 1);
+    n3 = hw_aes32esi(n3, s1, 2);
+    n3 = hw_aes32esi(n3, s2, 3);
+
+    rk += 4;
+    n0 ^= rk[0]; n1 ^= rk[1]; n2 ^= rk[2]; n3 ^= rk[3];
+
+    uint32_t *ct = (uint32_t *)ciphertext;
+    ct[0] = n0; ct[1] = n1; ct[2] = n2; ct[3] = n3;
+}
+
+// AES-128 ECB encryption (no padding)
 void aes128_ecb_encrypt(uint8_t *plaintext, size_t len, uint8_t *key, uint8_t *ciphertext) {
     if (len % 16 != 0) {
         //printf("Error: Input length must be a multiple of 16 bytes (no padding).\n");
@@ -202,10 +218,7 @@ void aes128_ecb_encrypt(uint8_t *plaintext, size_t len, uint8_t *key, uint8_t *c
     }
 
     uint8_t round_keys[176];
-
-    uint32_t t0 = rdcycle();
     expand_key(key, round_keys);
-    cycles_expand_key = rdcycle() - t0;
 
     for (size_t i = 0; i < len; i += 16) {
         aes128_encrypt_block(&plaintext[i], round_keys, &ciphertext[i]);
@@ -218,25 +231,81 @@ void write_to_address(uintptr_t addr, uint32_t value) {
 
 void write_v_to_address(uintptr_t addr, uint8_t vector[16]) {
     uint32_t *vector_word = (uint32_t *)vector;
-    for(int i = 0; i < 4; i++) {
+	for(int i = 0; i < 4; i++) {
         write_to_address(addr + i*0x4, vector_word[i]);
     }
 }
 
+// ---------------------------------------------------------------------------
+// Zkne hardware instruction test
+//
+// Memory map (base = 0x0102000):
+//   +0x08  : zkne pass/fail  (0xCAFEBABE = pass, 0xBAAAAAAD = fail)
+//   +0x10  : hw_aes32esi  results for bs=0..3  (4 words)
+//   +0x20  : hw_aes32esmi results for bs=0..3  (4 words)
+//
+// Instruction encodings use rd=a2(x12), rs1=a0(x10), rs2=a1(x11):
+//   aes32esi  a2,a0,a1,bs : 0x22B50613 | (bs<<30)
+//   aes32esmi a2,a0,a1,bs : 0x26B50613 | (bs<<30)
+// ---------------------------------------------------------------------------
+
+static uint8_t xt2(uint8_t x) {
+    return (uint8_t)((x << 1) ^ (x & 0x80 ? 0x1b : 0x00));
+}
+
+// Software reference for aes32esi: rd = rs1 ^ (SBOX[rs2.byte[bs]] << (bs*8))
+static uint32_t sw_aes32esi(uint32_t rs1, uint32_t rs2, int bs) {
+    uint8_t si = (rs2 >> (bs * 8)) & 0xff;
+    uint8_t so = sbox[si];
+    return rs1 ^ ((uint32_t)so << (bs * 8));
+}
+
+// Software reference for aes32esmi: rd = rs1 ^ ROL32(MixCol(SBOX[rs2.byte[bs]]), bs*8)
+// MixCol(so) = {xt2(so), so, so, xt2(so)^so}  (MSB to LSB, per RISC-V scalar crypto spec)
+static uint32_t sw_aes32esmi(uint32_t rs1, uint32_t rs2, int bs) {
+    uint8_t si  = (rs2 >> (bs * 8)) & 0xff;
+    uint8_t so  = sbox[si];
+    uint8_t t2  = xt2(so);
+    uint32_t mixed = ((uint32_t)(t2^so) << 24) | ((uint32_t)so << 16) |
+                     ((uint32_t)so <<  8) | (uint32_t)t2;
+    int shift = bs * 8;
+    uint32_t rol = shift ? ((mixed << shift) | (mixed >> (32 - shift))) : mixed;
+    return rs1 ^ rol;
+}
+
+// Test all 4 bs values for both instructions against software reference.
+// rs2=0xAABBCCDD gives distinct bytes at every lane; rs1=0x12345678 is a non-zero accumulator.
+static void test_zkne(void) {
+    const uint32_t rs1 = 0x12345678;
+    const uint32_t rs2 = 0xAABBCCDD;
+
+    uint32_t hw_esi[4], hw_esmi[4];
+    int pass = 1;
+
+    for (int bs = 0; bs < 4; bs++) {
+        hw_esi[bs]  = hw_aes32esi (rs1, rs2, bs);
+        hw_esmi[bs] = hw_aes32esmi(rs1, rs2, bs);
+
+        if (hw_esi[bs]  != sw_aes32esi (rs1, rs2, bs)) pass = 0;
+        if (hw_esmi[bs] != sw_aes32esmi(rs1, rs2, bs)) pass = 0;
+    }
+
+    // Write hw results to memory so they are visible in the waveform:
+    //   0x102010..0x10201F : aes32esi  bs=0..3
+    //   0x102020..0x10202F : aes32esmi bs=0..3
+    uintptr_t base = 0x0100000 + 0x2000;
+    for (int bs = 0; bs < 4; bs++) {
+        write_to_address(base + 0x10 + bs * 4, hw_esi[bs]);
+        write_to_address(base + 0x20 + bs * 4, hw_esmi[bs]);
+    }
+
+    // Pass/fail sentinel at 0x102008
+    write_to_address(base + 0x08, pass ? 0xCAFEBABE : 0xBAAAAAAD);
+}
+
 int main()
 {
-    // ----------------------------------------------------------------
-    // Enable hardware performance counters.
-    // CV32E40P resets mcountinhibit to all-1s (all counters disabled
-    // by default for power; see cv32e40p_cs_registers.sv:1568). We
-    // clear it to 0 so mcycle, minstret, and the HPM counters all
-    // start ticking. Without this, every `csrr ... mcycle` returns 0
-    // and dynamic profiling is silent.
-    // mcountinhibit CSR address = 0x320.
-    // ----------------------------------------------------------------
-    asm volatile ("csrwi 0x320, 0" ::: "memory");
-
-    // Plaintext: "Hello, World!000" (16 bytes, 1 block)
+	// Plaintext: "Hello, World!000" (16 bytes, 1 block)
     uint8_t plaintext[16] = {
         'H', 'e', 'l', 'l', 'o', ',', ' ', 'W',
         'o', 'r', 'l', 'd', '!', '0', '0', '0'
@@ -257,7 +326,7 @@ int main()
 
     addr = 0x0100000 + 0x2000 + 0x30;
     write_v_to_address(addr, expected_output);
-
+    
     addr = 0x0100000 + 0x2000 + 0x40;
     write_v_to_address(addr, ciphertext);
 
@@ -272,14 +341,8 @@ int main()
     }
     write_to_address(addr, value);
 
-    // Profiling output — write per-phase cycle counts to BRAM
-    // (testbench reads these after the run finishes; see zynq_tb.sv)
-    write_to_address(0x0100000 + 0x2000 + 0x60, cycles_expand_key);
-    write_to_address(0x0100000 + 0x2000 + 0x64, cycles_aes_encrypt_block);
-    write_to_address(0x0100000 + 0x2000 + 0x68, cycles_sub_bytes_total);
-    write_to_address(0x0100000 + 0x2000 + 0x6c, cycles_shift_rows_total);
-    write_to_address(0x0100000 + 0x2000 + 0x70, cycles_mix_columns_total);
-    write_to_address(0x0100000 + 0x2000 + 0x74, cycles_add_round_key_total);
+    // Run Zkne hardware instruction tests
+    test_zkne();
 
     //END OF TEST WRITE (used to identify when the execution of the C code finished): DO NOT REMOVE!
     addr = 0x0100000 + 0x2000; // SRAM base address is 0x0100000.
@@ -288,3 +351,4 @@ int main()
 
     return 0;
 }
+
