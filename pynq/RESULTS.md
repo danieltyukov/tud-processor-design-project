@@ -183,13 +183,70 @@ multi-cycle handshake: 8 AES instructions (4×`aes32esi` + 4×`aes32esmi`) at
 ~5 cycles each = ~40 extra cycles. Silicon-measured agreement with the
 designed 5-cycle FSM.
 
-## Summary of the three runs
+## Run 4 - tower-field Zkne + hw-using AES (post-Hruday-fix, post-merge)
 
-| Run | Bitstream | What it proves | Cycles | PASS |
-|---|---|---|---:|---|
-| 1 | team baseline (table-based AES, no Zkne RTL exercised) | full table-based AES correct on PYNQ | 161,441 | ✓ |
-| 2 | OUR tower-field zkne (our verified math, single-cycle combinational) | tower-field algebra correct on silicon | 60,035 | ✓ |
-| 3 | OUR DOM-masked zkne (multi-cycle, mask + DOM + unmask) | masked S-box functionally correct on silicon | 60,072 | ✓ |
+After merging Hruday's d5bb1fc fix (commits 3e59f8f + our 25fd333 mc0/mc3
+swap of the derived files), the bitstream + the new `software/main.c` (which
+inlines `hw_aes32esi`/`hw_aes32esmi` in the AES round chain) were rebuilt
+and re-run on the PYNQ-Z2.
+
+Full output: `pynq/results/zkne_tower_hwAES_2026-06-02.txt`.
+
+```
+============================================================
+BITSTREAM RAN ON SILICON  (10.2 ms wall-clock)
+============================================================
+  cycle count        = 4369
+
+  AES ciphertext check  = 0xCAFEBABE   PASSED
+  Zkne hw == sw check   = 0xCAFEBABE   PASSED
+
+  expected ciphertext = fba50914714bf41f2e25aabeaaf9080f
+  calculated          = fba50914714bf41f2e25aabeaaf9080f
+============================================================
+```
+
+The `aes32esmi` outputs are now byte-correct against the RISC-V scalar-crypto
+spec (the previous May-30 PASS was a same-bug-cancels-same-bug coincidence
+between Hruday's old SW reference and his old RTL).
+
+## Run 5 - DOM-masked Zkne + hw-using AES
+
+Same hw-using `main.c`, but on the DOM-masked bitstream.
+Full output: `pynq/results/zkne_dom_hwAES_2026-06-02.txt`.
+
+```
+============================================================
+BITSTREAM RAN ON SILICON  (10.3 ms wall-clock)
+============================================================
+  cycle count        = 5506
+
+  AES ciphertext check  = 0xCAFEBABE   PASSED
+  Zkne hw == sw check   = 0xCAFEBABE   PASSED
+
+  calculated ciphertext = fba50914714bf41f2e25aabeaaf9080f
+============================================================
+```
+
+## Summary of all five runs on PYNQ silicon
+
+| Run | Bitstream                                          | C program        | Cycles  | Ciphertext | Notes |
+|---:|----------------------------------------------------|------------------|--------:|:--:|---|
+| 1 | team baseline (no Zkne)                              | table-based AES  | 161,441 | ✓ | original baseline |
+| 2 | OUR tower-field (old mc0/mc3)                        | Hruday self-test |  60,035 | ✓ | hw vs sw passed by canceling bugs |
+| 3 | OUR DOM-masked (old mc0/mc3)                         | Hruday self-test |  60,072 | ✓ | same as Run 2, +37 cyc multi-cycle test cost |
+| **4** | **OUR tower-field (mc0/mc3 fixed)**                  | **hw-using AES** | **4,369**   | ✓ | spec-correct, **36.9× faster than baseline** |
+| **5** | **OUR DOM-masked (mc0/mc3 fixed)**                   | **hw-using AES** | **5,506**   | ✓ | DOM adds **+1,137 cyc** (26%) vs tower |
+
+### DOM cost on real AES, measured
+
+The 1,137-cycle delta between Runs 4 and 5 lines up with the architecture
+prediction: AES-128 issues ~160 hw instructions per block (9 inner rounds
+times 16 bytes of `aes32esmi` plus 1 final round times 16 of `aes32esi`).
+Each one stalls the pipeline 4 extra cycles for the DOM 5-cycle handshake.
+160 x 4 = 640 raw cycles from the stalls, the rest is pipeline drain and
+the per-instruction inline-asm boilerplate (`mv a0,%1; mv a1,%2; .word ...;
+mv %0,a2`) running through the longer-latency path.
 
 Side-channel resilience claim (CPA fails, TVLA |t| < 4.5) remains the
 simulation-based rig in `sidechannel/` since hardware-power probing needs
