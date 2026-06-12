@@ -998,7 +998,7 @@ module cv32e40p_alu
       ALU_DIV, ALU_DIVU, ALU_REM, ALU_REMU: result_o = result_div;
 
       // Zkne AES32 encryption instructions
-      ALU_AES32ESI, ALU_AES32ESMI: result_o = aes32_result;
+      ALU_AES32ESI, ALU_AES32ESMI: result_o = 32'b0;
 
       default: ;  // default case to suppress unique warning
     endcase
@@ -1007,3 +1007,4 @@ module cv32e40p_alu
   assign ready_o = div_ready;
 
 endmodule
+

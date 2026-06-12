@@ -9,24 +9,14 @@
 // specific language governing permissions and limitations under the License.
 
 ////////////////////////////////////////////////////////////////////////////////
-// Engineer:       Renzo Andri - andrire@student.ethz.ch                      //
-//                                                                            //
-// Additional contributions by:                                               //
-//                 Igor Loi - igor.loi@unibo.it                               //
-//                 Sven Stucki - svstucki@student.ethz.ch                     //
-//                 Andreas Traber - atraber@iis.ee.ethz.ch                    //
-//                 Michael Gautschi - gautschi@iis.ee.ethz.ch                 //
-//                 Davide Schiavone - pschiavo@iis.ee.ethz.ch                 //
-//                                                                            //
 // Design Name:    Execute stage                                              //
 // Project Name:   RI5CY                                                      //
 // Language:       SystemVerilog                                              //
 //                                                                            //
-// Description:    Execution stage: Hosts ALU and MAC unit                    //
-//                 ALU: computes additions/subtractions/comparisons           //
-//                 MULT: computes normal multiplications                      //
-//                 APU_DISP: offloads instructions to the shared unit.        //
-//                                                                            //
+// Description:    Execution stage with DOM-protected AES32 support.          //
+//                 The DOM unit has 5-cycle latency. When an AES32 instruction //
+//                 enters EX, this stage stalls for 4 cycles by holding       //
+//                 ex_ready_o low until aes_valid_o is asserted.              //
 ////////////////////////////////////////////////////////////////////////////////
 
 module cv32e40p_ex_stage
@@ -102,13 +92,10 @@ module cv32e40p_ex_stage
     output logic apu_ready_wb_o,
 
     // apu-interconnect
-    // handshake signals
     output logic                           apu_req_o,
     input  logic                           apu_gnt_i,
-    // request channel
     output logic [APU_NARGS_CPU-1:0][31:0] apu_operands_o,
     output logic [  APU_WOP_CPU-1:0]       apu_op_o,
-    // response channel
     input  logic                           apu_rvalid_i,
     input  logic [             31:0]       apu_result_i,
 
@@ -120,7 +107,7 @@ module cv32e40p_ex_stage
     input logic [5:0] regfile_alu_waddr_i,
     input logic       regfile_alu_we_i,
 
-    // directly passed through to WB stage, not used in EX
+    // directly passed through to WB stage
     input logic       regfile_we_i,
     input logic [5:0] regfile_waddr_i,
 
@@ -136,20 +123,20 @@ module cv32e40p_ex_stage
     // Forwarding ports : to ID stage
     output logic [ 5:0] regfile_alu_waddr_fw_o,
     output logic        regfile_alu_we_fw_o,
-    output logic [31:0] regfile_alu_wdata_fw_o,  // forward to RF and ID/EX pipe, ALU & MUL
+    output logic [31:0] regfile_alu_wdata_fw_o,
 
     // To IF: Jump and branch target and decision
     output logic [31:0] jump_target_o,
     output logic        branch_decision_o,
 
     // Stall Control
-    input logic         is_decoding_i, // Used to mask data Dependency inside the APU dispatcher in case of an istruction non valid
-    input logic lsu_ready_ex_i,  // EX part of LSU is done
+    input logic         is_decoding_i,
+    input logic lsu_ready_ex_i,
     input logic lsu_err_i,
 
-    output logic ex_ready_o,  // EX stage ready for new data
-    output logic ex_valid_o,  // EX stage gets new data
-    input  logic wb_ready_i  // WB stage ready for new data
+    output logic ex_ready_o,
+    output logic ex_valid_o,
+    input  logic wb_ready_i
 );
 
   logic [31:0] alu_result;
@@ -176,32 +163,94 @@ module cv32e40p_ex_stage
   logic        apu_req;
   logic        apu_gnt;
 
+  // =========================================================================
+  // DOM AES stall signals
+  //
+  // aes_insn:      true when the current instruction in EX is AES32
+  // aes_in_flight: true from the cycle valid_i is sent until valid_o arrives
+  // aes_valid_i:   one-cycle pulse sent to DOM unit at start of AES instruction
+  // aes_valid_o:   one-cycle pulse from DOM unit when result is ready (4 cycles later)
+  // aes_ready:     low while DOM unit is busy (used to stall ex_ready_o)
+  // aes_result:    the 32-bit result from the DOM unit
+  // =========================================================================
+
+  logic        aes_insn;        // current instruction is AES32
+  logic        aes_in_flight;   // AES instruction currently being processed
+  logic        aes_valid_i_int; // one-shot valid to DOM unit
+  logic        aes_valid_o_int; // done signal from DOM unit
+  logic        aes_ready_int;   // DOM unit not busy
+  logic [31:0] aes_result;      // DOM unit output
+
+  // AES instruction detection
+  assign aes_insn = alu_en_i &
+                    ((alu_operator_i == ALU_AES32ESI) |
+                     (alu_operator_i == ALU_AES32ESMI));
+
+  // One-shot pulse: only fire valid_i on the FIRST cycle the AES instruction
+  // is in EX, not during the stall cycles that follow
+  assign aes_valid_i_int = aes_insn & ~aes_in_flight;
+
+  // Track in-flight state: set when we fire valid_i, clear when done
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n)
+      aes_in_flight <= 1'b0;
+    else if (aes_valid_i_int)
+      aes_in_flight <= 1'b1;
+    else if (aes_valid_o_int)
+      aes_in_flight <= 1'b0;
+  end
+
+  // DOM-protected AES32 execution unit
+  cv32e40p_zkne_dom zkne_dom_i (
+      .clk         (clk),
+      .rst_n       (rst_n),
+      .operator_i  (alu_operator_i),
+      .operand_a_i (alu_operand_a_i),
+      .operand_b_i (alu_operand_b_i),
+      .bs_i        (imm_vec_ext_i),
+      .en_i        (aes_in_flight | aes_valid_i_int),
+      .valid_i     (aes_valid_i_int),
+      .valid_o     (aes_valid_o_int),
+      .ready_o     (aes_ready_int),
+      .result_o    (aes_result)
+  );
+
+  // =========================================================================
   // ALU write port mux
+  // When an AES instruction is in flight, hold the forwarded write-enable low
+  // until aes_valid_o fires. On that cycle, forward the DOM result.
+  // =========================================================================
   always_comb begin
     regfile_alu_wdata_fw_o = '0;
     regfile_alu_waddr_fw_o = '0;
     regfile_alu_we_fw_o    = '0;
     wb_contention          = 1'b0;
 
-    // APU single cycle operations, and multicycle operations (>2cycles) are written back on ALU port
     if (apu_valid & (apu_singlecycle | apu_multicycle)) begin
       regfile_alu_we_fw_o    = 1'b1;
       regfile_alu_waddr_fw_o = apu_waddr;
       regfile_alu_wdata_fw_o = apu_result;
 
-      if (regfile_alu_we_i & ~apu_en_i) begin
+      if (regfile_alu_we_i & ~apu_en_i)
         wb_contention = 1'b1;
-      end
-    end else begin
-      regfile_alu_we_fw_o    = regfile_alu_we_i & ~apu_en_i;  // private fpu incomplete?
+
+    end else if (aes_valid_o_int) begin
+      // AES instruction just finished — forward its result this cycle
+      regfile_alu_we_fw_o    = regfile_alu_we_i;
       regfile_alu_waddr_fw_o = regfile_alu_waddr_i;
-      if (alu_en_i) regfile_alu_wdata_fw_o = alu_result;
-      if (mult_en_i) regfile_alu_wdata_fw_o = mult_result;
+      regfile_alu_wdata_fw_o = aes_result;
+
+    end else begin
+      // Normal ALU/MUL/CSR forwarding (AES holds we=0 while in-flight)
+      regfile_alu_we_fw_o    = regfile_alu_we_i & ~apu_en_i & ~aes_in_flight;
+      regfile_alu_waddr_fw_o = regfile_alu_waddr_i;
+      if (alu_en_i)    regfile_alu_wdata_fw_o = alu_result;
+      if (mult_en_i)   regfile_alu_wdata_fw_o = mult_result;
       if (csr_access_i) regfile_alu_wdata_fw_o = csr_rdata_i;
     end
   end
 
-  // LSU write port mux
+  // LSU write port mux (unchanged)
   always_comb begin
     regfile_we_wb_o    = 1'b0;
     regfile_waddr_wb_o = regfile_waddr_lsu;
@@ -210,10 +259,8 @@ module cv32e40p_ex_stage
 
     if (regfile_we_lsu) begin
       regfile_we_wb_o = 1'b1;
-      if (apu_valid & (!apu_singlecycle & !apu_multicycle)) begin
+      if (apu_valid & (!apu_singlecycle & !apu_multicycle))
         wb_contention_lsu = 1'b1;
-      end
-      // APU two-cycle operations are written back on LSU port
     end else if (apu_valid & (!apu_singlecycle & !apu_multicycle)) begin
       regfile_we_wb_o    = 1'b1;
       regfile_waddr_wb_o = apu_waddr;
@@ -221,18 +268,11 @@ module cv32e40p_ex_stage
     end
   end
 
-  // branch handling
   assign branch_decision_o = alu_cmp_result;
   assign jump_target_o     = alu_operand_c_i;
 
-
   ////////////////////////////
-  //     _    _    _   _    //
-  //    / \  | |  | | | |   //
-  //   / _ \ | |  | | | |   //
-  //  / ___ \| |__| |_| |   //
-  // /_/   \_\_____\___/    //
-  //                        //
+  //        ALU             //
   ////////////////////////////
 
   cv32e40p_alu alu_i (
@@ -260,15 +300,9 @@ module cv32e40p_ex_stage
       .ex_ready_i(ex_ready_o)
   );
 
-
-  ////////////////////////////////////////////////////////////////
-  //  __  __ _   _ _   _____ ___ ____  _     ___ _____ ____     //
-  // |  \/  | | | | | |_   _|_ _|  _ \| |   |_ _| ____|  _ \    //
-  // | |\/| | | | | |   | |  | || |_) | |    | ||  _| | |_) |   //
-  // | |  | | |_| | |___| |  | ||  __/| |___ | || |___|  _ <    //
-  // |_|  |_|\___/|_____|_| |___|_|   |_____|___|_____|_| \_\   //
-  //                                                            //
-  ////////////////////////////////////////////////////////////////
+  ////////////////////////////
+  //     MULTIPLIER         //
+  ////////////////////////////
 
   cv32e40p_mult mult_i (
       .clk  (clk),
@@ -302,15 +336,6 @@ module cv32e40p_ex_stage
 
   generate
     if (FPU == 1) begin : gen_apu
-      ////////////////////////////////////////////////////
-      //     _    ____  _   _   ____ ___ ____  ____     //
-      //    / \  |  _ \| | | | |  _ \_ _/ ___||  _ \    //
-      //   / _ \ | |_) | | | | | | | | |\___ \| |_) |   //
-      //  / ___ \|  __/| |_| | | |_| | | ___) |  __/    //
-      // /_/   \_\_|    \___/  |____/___|____/|_|       //
-      //                                                //
-      ////////////////////////////////////////////////////
-
       cv32e40p_apu_disp apu_disp_i (
           .clk_i (clk),
           .rst_ni(rst_n),
@@ -337,17 +362,13 @@ module cv32e40p_ex_stage
           .perf_type_o(apu_perf_type_o),
           .perf_cont_o(apu_perf_cont_o),
 
-          // apu-interconnect
-          // handshake signals
           .apu_req_o   (apu_req),
           .apu_gnt_i   (apu_gnt),
-          // response channel
           .apu_rvalid_i(apu_valid)
       );
 
       assign apu_perf_wb_o   = wb_contention | wb_contention_lsu;
       assign apu_ready_wb_o  = ~(apu_active | apu_en_i | apu_stall) | apu_valid;
-
       assign apu_req_o       = apu_req;
       assign apu_gnt         = apu_gnt_i;
       assign apu_valid       = apu_rvalid_i;
@@ -355,8 +376,8 @@ module cv32e40p_ex_stage
       assign apu_op_o        = apu_op_i;
       assign apu_result      = apu_result_i;
       assign fpu_fflags_we_o = apu_valid;
+
     end else begin : gen_no_apu
-      // default assignements for the case when no FPU/APU is attached.
       assign apu_req_o         = '0;
       assign apu_operands_o[0] = '0;
       assign apu_operands_o[1] = '0;
@@ -378,7 +399,6 @@ module cv32e40p_ex_stage
       assign apu_read_dep_o    = 1'b0;
       assign apu_write_dep_o   = 1'b0;
       assign fpu_fflags_we_o   = 1'b0;
-
     end
   endgenerate
 
@@ -392,26 +412,42 @@ module cv32e40p_ex_stage
       regfile_waddr_lsu <= '0;
       regfile_we_lsu    <= 1'b0;
     end else begin
-      if (ex_valid_o) // wb_ready_i is implied
-      begin
+      if (ex_valid_o) begin
         regfile_we_lsu <= regfile_we_i & ~lsu_err_i;
-        if (regfile_we_i & ~lsu_err_i) begin
+        if (regfile_we_i & ~lsu_err_i)
           regfile_waddr_lsu <= regfile_waddr_i;
-        end
       end else if (wb_ready_i) begin
-        // we are ready for a new instruction, but there is none available,
-        // so we just flush the current one out of the pipe
         regfile_we_lsu <= 1'b0;
       end
     end
   end
 
-  // As valid always goes to the right and ready to the left, and we are able
-  // to finish branches without going to the WB stage, ex_valid does not
-  // depend on ex_ready.
+  // =========================================================================
+  // Stall and valid logic
+  //
+  // aes_in_flight causes ex_ready_o to go low, stalling the pipeline.
+  // The stall lasts until aes_valid_o fires (3 extra cycles after valid_i).
+  // On the cycle aes_valid_o fires, aes_in_flight clears and ex_ready_o
+  // returns high, allowing the pipeline to advance and write back the result.
+  //
+  // Original ready logic kept intact; AES stall added via ~aes_in_flight term.
+  // =========================================================================
+
+  // TEMPORARY DEBUG - remove after fixing
+  always_ff @(posedge clk) begin
+      if (aes_insn)
+          $display("t=%0t aes_insn=%b aes_in_flight=%b aes_valid_i=%b aes_valid_o=%b en_i=%b result=%08x",
+                  $time, aes_insn, aes_in_flight, aes_valid_i_int, aes_valid_o_int,
+                  (aes_in_flight | aes_valid_i_int), aes_result);
+  end
+
   assign ex_ready_o = (~apu_stall & alu_ready & mult_ready & lsu_ready_ex_i
-                       & wb_ready_i & ~wb_contention) | (branch_in_ex_i);
+                      & wb_ready_i & ~wb_contention
+                      & (~aes_insn | aes_valid_o_int))
+                      | (branch_in_ex_i);
+
   assign ex_valid_o = (apu_valid | alu_en_i | mult_en_i | csr_access_i | lsu_en_i)
-                       & (alu_ready & mult_ready & lsu_ready_ex_i & wb_ready_i);
+                      & (alu_ready & mult_ready & lsu_ready_ex_i & wb_ready_i)
+                      & (~aes_insn | aes_valid_o_int);
 
 endmodule
