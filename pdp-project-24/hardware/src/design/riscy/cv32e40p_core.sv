@@ -172,6 +172,7 @@ module cv32e40p_core
   logic        [31:0] alu_operand_a_ex;
   logic        [31:0] alu_operand_b_ex;
   logic        [31:0] alu_operand_c_ex;
+  logic        [31:0] alu_operand_d_ex;  // rs4 super-instruction
   logic        [ 4:0] bmask_a_ex;
   logic        [ 4:0] bmask_b_ex;
   logic        [ 1:0] imm_vec_ext_ex;
@@ -578,6 +579,7 @@ module cv32e40p_core
       .alu_operand_a_ex_o (alu_operand_a_ex),
       .alu_operand_b_ex_o (alu_operand_b_ex),
       .alu_operand_c_ex_o (alu_operand_c_ex),
+      .alu_operand_d_ex_o (alu_operand_d_ex),
       .bmask_a_ex_o       (bmask_a_ex),
       .bmask_b_ex_o       (bmask_b_ex),
       .imm_vec_ext_ex_o   (imm_vec_ext_ex),
@@ -757,6 +759,7 @@ module cv32e40p_core
       .alu_operand_a_i (alu_operand_a_ex),  // from ID/EX pipe registers
       .alu_operand_b_i (alu_operand_b_ex),  // from ID/EX pipe registers
       .alu_operand_c_i (alu_operand_c_ex),  // from ID/EX pipe registers
+      .alu_operand_d_i (alu_operand_d_ex),  // from ID/EX pipe registers
       .bmask_a_i       (bmask_a_ex),  // from ID/EX pipe registers
       .bmask_b_i       (bmask_b_ex),  // from ID/EX pipe registers
       .imm_vec_ext_i   (imm_vec_ext_ex),  // from ID/EX pipe registers

@@ -75,8 +75,8 @@ SECTIONS
         . = ALIGN(4);
         *(.rodata);
         *(.rodata.*)
-    } > dataram
-
+    } > instrram
+    
     .shbss :
     {
         . = ALIGN(4);

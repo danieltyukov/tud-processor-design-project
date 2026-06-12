@@ -171,17 +171,21 @@ module cv32e40p_controller import cv32e40p_pkg::*;
   output logic [1:0]  operand_a_fw_mux_sel_o,     // regfile ra data selector form ID stage
   output logic [1:0]  operand_b_fw_mux_sel_o,     // regfile rb data selector form ID stage
   output logic [1:0]  operand_c_fw_mux_sel_o,     // regfile rc data selector form ID stage
+  output logic [1:0]  operand_d_fw_mux_sel_o,     // regfile rd data selector (rs4 super-insn)
 
   // forwarding detection signals
   input logic         reg_d_ex_is_reg_a_i,
   input logic         reg_d_ex_is_reg_b_i,
   input logic         reg_d_ex_is_reg_c_i,
+  input logic         reg_d_ex_is_reg_d_i,        // rs4 hazard with EX result
   input logic         reg_d_wb_is_reg_a_i,
   input logic         reg_d_wb_is_reg_b_i,
   input logic         reg_d_wb_is_reg_c_i,
+  input logic         reg_d_wb_is_reg_d_i,        // rs4 hazard with WB result
   input logic         reg_d_alu_is_reg_a_i,
   input logic         reg_d_alu_is_reg_b_i,
   input logic         reg_d_alu_is_reg_c_i,
+  input logic         reg_d_alu_is_reg_d_i,       // rs4 hazard with ALU fw result
 
   // stall signals
   output logic        halt_if_o,
@@ -1323,7 +1327,8 @@ endgenerate
           ( (data_req_ex_i == 1'b1) && (regfile_we_ex_i == 1'b1) ||
            (wb_ready_i == 1'b0) && (regfile_we_wb_i == 1'b1)
           ) &&
-          ( (reg_d_ex_is_reg_a_i == 1'b1) || (reg_d_ex_is_reg_b_i == 1'b1) || (reg_d_ex_is_reg_c_i == 1'b1) ||
+          ( (reg_d_ex_is_reg_a_i == 1'b1) || (reg_d_ex_is_reg_b_i == 1'b1) ||
+            (reg_d_ex_is_reg_c_i == 1'b1) || (reg_d_ex_is_reg_d_i == 1'b1) ||
             (is_decoding_o && (regfile_we_id_i && !data_misaligned_i) && (regfile_waddr_ex_i == regfile_alu_waddr_id_i)) )
        )
     begin
@@ -1363,6 +1368,7 @@ endgenerate
     operand_a_fw_mux_sel_o = SEL_REGFILE;
     operand_b_fw_mux_sel_o = SEL_REGFILE;
     operand_c_fw_mux_sel_o = SEL_REGFILE;
+    operand_d_fw_mux_sel_o = SEL_REGFILE;
 
     // Forwarding WB -> ID
     if (regfile_we_wb_i == 1'b1)
@@ -1373,6 +1379,8 @@ endgenerate
         operand_b_fw_mux_sel_o = SEL_FW_WB;
       if (reg_d_wb_is_reg_c_i == 1'b1)
         operand_c_fw_mux_sel_o = SEL_FW_WB;
+      if (reg_d_wb_is_reg_d_i == 1'b1)
+        operand_d_fw_mux_sel_o = SEL_FW_WB;
     end
 
     // Forwarding EX -> ID
@@ -1384,6 +1392,8 @@ endgenerate
        operand_b_fw_mux_sel_o = SEL_FW_EX;
      if (reg_d_alu_is_reg_c_i == 1'b1)
        operand_c_fw_mux_sel_o = SEL_FW_EX;
+     if (reg_d_alu_is_reg_d_i == 1'b1)
+       operand_d_fw_mux_sel_o = SEL_FW_EX;
     end
 
     // for misaligned memory accesses
@@ -1584,6 +1594,25 @@ endgenerate
   // Ensure that the only way to get to DBG_TAKEN_IF from DBG_FLUSH is if debug_single_step_i is asserted
   a_dbg_flush_to_taken_if : assert property (@(posedge clk) disable iff (!rst_n) (ctrl_fsm_cs == DBG_FLUSH) && (ctrl_fsm_ns == DBG_TAKEN_IF) |-> debug_single_step_i);
 
+`endif
+
+
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (load_stall_o) begin
+      $display("[%0t | CTRL] LOAD STALL @ PC=0x%08x | hazard: a=%0b b=%0b c=%0b d=%0b | data_req_ex=%0b regfile_we_ex=%0b waddr_ex=x%0d",
+               $time,
+               pc_id_i,
+               reg_d_ex_is_reg_a_i,
+               reg_d_ex_is_reg_b_i,
+               reg_d_ex_is_reg_c_i,
+               reg_d_ex_is_reg_d_i,
+               data_req_ex_i,
+               regfile_we_ex_i,
+               regfile_waddr_ex_i);
+    end
+  end
 `endif
 
 endmodule // cv32e40p_controller

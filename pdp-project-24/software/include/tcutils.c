@@ -33,7 +33,7 @@
 #include "tcutils.h"
 #include "constants.h"
 
-#include <string.h>
+//#include <string.h>
 
 #define MASK_TWENTY_SEVEN 0x1b
 

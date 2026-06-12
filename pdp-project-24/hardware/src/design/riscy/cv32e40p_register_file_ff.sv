@@ -51,6 +51,10 @@ module cv32e40p_register_file #(
     input  logic [ADDR_WIDTH-1:0] raddr_c_i,
     output logic [DATA_WIDTH-1:0] rdata_c_o,
 
+    //Read port R4 (rs4 for super-instructions; integer regfile only)
+    input  logic [ADDR_WIDTH-1:0] raddr_d_i,
+    output logic [DATA_WIDTH-1:0] rdata_d_o,
+
     // Write port W1
     input logic [ADDR_WIDTH-1:0] waddr_a_i,
     input logic [DATA_WIDTH-1:0] wdata_a_i,
@@ -91,10 +95,14 @@ module cv32e40p_register_file #(
       assign rdata_a_o = raddr_a_i[5] ? mem_fp[raddr_a_i[4:0]] : mem[raddr_a_i[4:0]];
       assign rdata_b_o = raddr_b_i[5] ? mem_fp[raddr_b_i[4:0]] : mem[raddr_b_i[4:0]];
       assign rdata_c_o = raddr_c_i[5] ? mem_fp[raddr_c_i[4:0]] : mem[raddr_c_i[4:0]];
+      // Port D: integer only (super-instructions always use integer rs4)
+      assign rdata_d_o = mem[raddr_d_i[4:0]];
     end else begin : gen_mem_read
       assign rdata_a_o = mem[raddr_a_i[4:0]];
       assign rdata_b_o = mem[raddr_b_i[4:0]];
       assign rdata_c_o = mem[raddr_c_i[4:0]];
+      // Port D: integer only
+      assign rdata_d_o = mem[raddr_d_i[4:0]];
     end
   endgenerate
 

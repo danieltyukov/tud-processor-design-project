@@ -97,6 +97,7 @@ module cv32e40p_id_stage
     output logic [31:0] alu_operand_a_ex_o,
     output logic [31:0] alu_operand_b_ex_o,
     output logic [31:0] alu_operand_c_ex_o,
+    output logic [31:0] alu_operand_d_ex_o,  // rs4 for super-instructions
     output logic [ 4:0] bmask_a_ex_o,
     output logic [ 4:0] bmask_b_ex_o,
     output logic [ 1:0] imm_vec_ext_ex_o,
@@ -260,6 +261,10 @@ module cv32e40p_id_stage
 
   localparam REG_S4_MSB = 31;
   localparam REG_S4_LSB = 27;
+
+  // RS4 address for super-instructions (instr[31:27])
+  localparam REG_S5_MSB = 31;
+  localparam REG_S5_LSB = 27;
 
   localparam REG_D_MSB = 11;
   localparam REG_D_LSB = 7;
@@ -431,6 +436,7 @@ module cv32e40p_id_stage
   logic        [       1:0] operand_a_fw_mux_sel;
   logic        [       1:0] operand_b_fw_mux_sel;
   logic        [       1:0] operand_c_fw_mux_sel;
+  logic        [       1:0] operand_d_fw_mux_sel;  // rs4 forwarding
   logic        [      31:0] operand_a_fw_id;
   logic        [      31:0] operand_b_fw_id;
   logic        [      31:0] operand_c_fw_id;
@@ -457,6 +463,11 @@ module cv32e40p_id_stage
   logic [ 4:0] mult_imm_id;
   logic        aes_insn_id;
 
+  // 4th register read port for super-instructions
+  logic        regd_used_dec;
+  logic [ 5:0] regfile_addr_rd_id;   // rs4 address (instr[31:27])
+  logic [31:0] regfile_data_rd_id;   // rs4 read data
+
   logic [ 1:0] alu_vec_mode;
   logic        scalar_replication;
   logic        scalar_replication_c;
@@ -465,12 +476,15 @@ module cv32e40p_id_stage
   logic        reg_d_ex_is_reg_a_id;
   logic        reg_d_ex_is_reg_b_id;
   logic        reg_d_ex_is_reg_c_id;
+  logic        reg_d_ex_is_reg_d_id;
   logic        reg_d_wb_is_reg_a_id;
   logic        reg_d_wb_is_reg_b_id;
   logic        reg_d_wb_is_reg_c_id;
+  logic        reg_d_wb_is_reg_d_id;
   logic        reg_d_alu_is_reg_a_id;
   logic        reg_d_alu_is_reg_b_id;
   logic        reg_d_alu_is_reg_c_id;
+  logic        reg_d_alu_is_reg_d_id;
 
   logic is_clpx, is_subrot;
 
@@ -526,6 +540,9 @@ module cv32e40p_id_stage
   assign regfile_addr_ra_id = {fregfile_ena & regfile_fp_a, instr[REG_S1_MSB:REG_S1_LSB]};
   assign regfile_addr_rb_id = {fregfile_ena & regfile_fp_b, instr[REG_S2_MSB:REG_S2_LSB]};
 
+  // rs4 for super-instructions: always integer regfile, instr[31:27]
+  assign regfile_addr_rd_id = {1'b0, instr[REG_S5_MSB:REG_S5_LSB]};
+
   // register C mux
   always_comb begin
     unique case (regc_mux)
@@ -549,12 +566,15 @@ module cv32e40p_id_stage
   assign reg_d_ex_is_reg_a_id  = (regfile_waddr_ex_o     == regfile_addr_ra_id) && (rega_used_dec == 1'b1) && (regfile_addr_ra_id != '0);
   assign reg_d_ex_is_reg_b_id  = (regfile_waddr_ex_o     == regfile_addr_rb_id) && (regb_used_dec == 1'b1) && (regfile_addr_rb_id != '0);
   assign reg_d_ex_is_reg_c_id  = (regfile_waddr_ex_o     == regfile_addr_rc_id) && (regc_used_dec == 1'b1) && (regfile_addr_rc_id != '0);
+  assign reg_d_ex_is_reg_d_id  = (regfile_waddr_ex_o     == regfile_addr_rd_id) && (regd_used_dec == 1'b1) && (regfile_addr_rd_id != '0);
   assign reg_d_wb_is_reg_a_id  = (regfile_waddr_wb_i     == regfile_addr_ra_id) && (rega_used_dec == 1'b1) && (regfile_addr_ra_id != '0);
   assign reg_d_wb_is_reg_b_id  = (regfile_waddr_wb_i     == regfile_addr_rb_id) && (regb_used_dec == 1'b1) && (regfile_addr_rb_id != '0);
   assign reg_d_wb_is_reg_c_id  = (regfile_waddr_wb_i     == regfile_addr_rc_id) && (regc_used_dec == 1'b1) && (regfile_addr_rc_id != '0);
+  assign reg_d_wb_is_reg_d_id  = (regfile_waddr_wb_i     == regfile_addr_rd_id) && (regd_used_dec == 1'b1) && (regfile_addr_rd_id != '0);
   assign reg_d_alu_is_reg_a_id = (regfile_alu_waddr_fw_i == regfile_addr_ra_id) && (rega_used_dec == 1'b1) && (regfile_addr_ra_id != '0);
   assign reg_d_alu_is_reg_b_id = (regfile_alu_waddr_fw_i == regfile_addr_rb_id) && (regb_used_dec == 1'b1) && (regfile_addr_rb_id != '0);
   assign reg_d_alu_is_reg_c_id = (regfile_alu_waddr_fw_i == regfile_addr_rc_id) && (regc_used_dec == 1'b1) && (regfile_addr_rc_id != '0);
+  assign reg_d_alu_is_reg_d_id = (regfile_alu_waddr_fw_i == regfile_addr_rd_id) && (regd_used_dec == 1'b1) && (regfile_addr_rd_id != '0);
 
 
   // kill instruction in the IF/ID stage by setting the instr_valid_id control
@@ -741,6 +761,17 @@ module cv32e40p_id_stage
     ;  // case (operand_c_fw_mux_sel)
   end
 
+  // Operand d forwarding mux (rs4 for super-instructions)
+  logic [31:0] operand_d_fw_id;
+  always_comb begin : operand_d_fw_mux
+    case (operand_d_fw_mux_sel)
+      SEL_FW_EX:   operand_d_fw_id = regfile_alu_wdata_fw_i;
+      SEL_FW_WB:   operand_d_fw_id = regfile_wdata_wb_i;
+      SEL_REGFILE: operand_d_fw_id = regfile_data_rd_id;
+      default:     operand_d_fw_id = regfile_data_rd_id;
+    endcase
+  end
+
 
   ///////////////////////////////////////////////////////////////////////////
   //  ___                              _ _       _              ___ ____   //
@@ -779,8 +810,11 @@ module cv32e40p_id_stage
     endcase
   end
 
-  // For Zkne AES32 instructions bs lives in instr[31:30], not the vu-immediate field
-  assign imm_vec_ext_id = aes_insn_id ? instr[31:30] : imm_vu_type[1:0];
+  // For Zkne AES32 instructions bs lives in instr[31:30], not the vu-immediate field.
+  // For super-instructions (regd_used_dec=1), bs is in instr[21:20] (low 2b of rs3).
+  assign imm_vec_ext_id = aes_insn_id    ? instr[31:30] :
+                          regd_used_dec  ? instr[21:20] :
+                          imm_vu_type[1:0];
 
 
   always_comb begin
@@ -928,6 +962,10 @@ module cv32e40p_id_stage
       .raddr_c_i(regfile_addr_rc_id),
       .rdata_c_o(regfile_data_rc_id),
 
+      // Read port d (rs4 for super-instructions)
+      .raddr_d_i(regfile_addr_rd_id),
+      .rdata_d_o(regfile_data_rd_id),
+
       // Write port a
       .waddr_a_i(regfile_waddr_wb_i),
       .wdata_a_i(regfile_wdata_wb_i),
@@ -1073,7 +1111,10 @@ module cv32e40p_id_stage
       .mcounteren_i(mcounteren_i),
 
       // Zkne byte-select routing
-      .aes_insn_o(aes_insn_id)
+      .aes_insn_o(aes_insn_id),
+
+      // 4th source register (super-instructions)
+      .regd_used_o(regd_used_dec)
 
   );
 
@@ -1225,17 +1266,21 @@ module cv32e40p_id_stage
       .reg_d_ex_is_reg_a_i (reg_d_ex_is_reg_a_id),
       .reg_d_ex_is_reg_b_i (reg_d_ex_is_reg_b_id),
       .reg_d_ex_is_reg_c_i (reg_d_ex_is_reg_c_id),
+      .reg_d_ex_is_reg_d_i (reg_d_ex_is_reg_d_id),
       .reg_d_wb_is_reg_a_i (reg_d_wb_is_reg_a_id),
       .reg_d_wb_is_reg_b_i (reg_d_wb_is_reg_b_id),
       .reg_d_wb_is_reg_c_i (reg_d_wb_is_reg_c_id),
+      .reg_d_wb_is_reg_d_i (reg_d_wb_is_reg_d_id),
       .reg_d_alu_is_reg_a_i(reg_d_alu_is_reg_a_id),
       .reg_d_alu_is_reg_b_i(reg_d_alu_is_reg_b_id),
       .reg_d_alu_is_reg_c_i(reg_d_alu_is_reg_c_id),
+      .reg_d_alu_is_reg_d_i(reg_d_alu_is_reg_d_id),
 
       // Forwarding signals
       .operand_a_fw_mux_sel_o(operand_a_fw_mux_sel),
       .operand_b_fw_mux_sel_o(operand_b_fw_mux_sel),
       .operand_c_fw_mux_sel_o(operand_c_fw_mux_sel),
+      .operand_d_fw_mux_sel_o(operand_d_fw_mux_sel),
 
       // Stall signals
       .halt_if_o(halt_if),
@@ -1413,6 +1458,7 @@ module cv32e40p_id_stage
       alu_operand_a_ex_o     <= '0;
       alu_operand_b_ex_o     <= '0;
       alu_operand_c_ex_o     <= '0;
+      alu_operand_d_ex_o     <= '0;
       bmask_a_ex_o           <= '0;
       bmask_b_ex_o           <= '0;
       imm_vec_ext_ex_o       <= '0;
@@ -1501,6 +1547,8 @@ module cv32e40p_id_stage
           alu_operand_a_ex_o  <= alu_operand_a;
           alu_operand_b_ex_o  <= alu_operand_b;
           alu_operand_c_ex_o  <= alu_operand_c;
+          // rs4 for super-instructions — use forwarded value
+          alu_operand_d_ex_o  <= regd_used_dec ? operand_d_fw_id : '0;
           bmask_a_ex_o        <= bmask_a_id;
           bmask_b_ex_o        <= bmask_b_id;
           imm_vec_ext_ex_o    <= imm_vec_ext_id;

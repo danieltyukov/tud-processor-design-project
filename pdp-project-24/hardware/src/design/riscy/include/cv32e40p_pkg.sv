@@ -57,6 +57,12 @@ package cv32e40p_pkg;
   // those opcodes are now used for PULP custom instructions
   // parameter OPCODE_CUST0     = 7'h0b
   // parameter OPCODE_CUST1     = 7'h2b
+ 
+ // SUPER INSTRUCTION OP CODES
+ 
+ parameter OPCODE_AES32_ESI_SUPER = 7'h3f;
+ parameter OPCODE_AES32_ESMI_SUPER = 7'h7f;
+
 
   // PULP custom
   parameter OPCODE_LOAD_POST = 7'h0b;
@@ -167,6 +173,8 @@ package cv32e40p_pkg;
     // Zkne: RV32 AES encryption instructions
     ALU_AES32ESI  = 7'b1000000,  // aes32esi:  SubBytes only
     ALU_AES32ESMI = 7'b1000001   // aes32esmi: SubBytes + MixColumns contribution
+    
+    
 
   } alu_opcode_e;
 

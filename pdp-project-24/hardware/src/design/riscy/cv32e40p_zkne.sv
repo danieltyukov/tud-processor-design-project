@@ -13,28 +13,34 @@
 // Project Name:   RI5CY                                                      //
 // Language:       SystemVerilog                                              //
 //                                                                            //
-// Description:    Implements the RISC-V Zkne scalar AES encryption           //
-//                 instructions for RV32:                                     //
-//                   aes32esi  rd,rs1,rs2,bs  -- SubBytes only                //
-//                   aes32esmi rd,rs1,rs2,bs  -- SubBytes + MixColumns        //
+// Description:    Single-lane AES32 unit.  Instantiated 4× in the ALU,      //
+//                 each with a hardwired bs_i (0-3).                          //
 //                                                                            //
-// Instruction encoding (both share OPCODE_OPIMM = 7'h13, funct3 = 3'b000): //
-//   [31:30] = bs   (byte select: 0-3)                                        //
-//   [29:25] = 10001 (aes32esi) or 10011 (aes32esmi)                         //
-//   [24:20] = rs2                                                            //
-//   [19:15] = rs1                                                            //
-//   [11:7]  = rd                                                             //
+// For normal AES32esi/esmi:                                                  //
+//   The ALU selects the one lane whose bs matches imm_vec_ext_i.             //
+//   operand_a (rs1) XOR is applied in the ALU result mux, not here.         //
 //                                                                            //
-// bs is passed in via imm_vec_ext_i (the existing 2-bit path from ID→EX).  //
+// For super AES32esi/esmi:                                                   //
+//   All 4 lanes fire; the ALU XORs all 4 results + rs1 + rs4 together.      //
+//   Each lane still processes the same rs2; bs is its fixed lane index.      //
+//                                                                            //
+// Ports:                                                                     //
+//   operator_i  : ALU_AES32ESI or ALU_AES32ESMI                             //
+//   operand_b_i : rs2 (source of the byte to SubBytes)                      //
+//   operand_c_i : rs3 (unused in single-lane unit; kept for interface compat)//
+//   operand_d_i : rs4 (unused in single-lane unit; kept for interface compat)//
+//   bs_i        : hardwired byte-select (0-3) from instantiation             //
+//   result_o    : lane contribution (WITHOUT rs1 XOR — applied in ALU)      //
 ////////////////////////////////////////////////////////////////////////////////
 
 module cv32e40p_zkne
   import cv32e40p_pkg::*;
 (
   input  alu_opcode_e operator_i,
-  input  logic [31:0] operand_a_i,  // rs1 (XOR'd with final result)
-  input  logic [31:0] operand_b_i,  // rs2 (byte-selected, SubBytes applied)
-  input  logic [ 1:0] bs_i,         // byte select from instr[31:30]
+  input  logic [31:0] operand_b_i,  // rs2
+  input  logic [31:0] operand_c_i,  // rs3 (unused here, present for compatibility)
+  input  logic [31:0] operand_d_i,  // rs4 (unused here, present for compatibility)
+  input  logic [ 1:0] bs_i,         // hardwired byte select for this lane
   output logic [31:0] result_o
 );
 
@@ -121,45 +127,40 @@ module cv32e40p_zkne
   endfunction
 
   //-------------------------------------------------------------------------
-  // Internal signals
+  // Byte select and SubBytes lookup
+  // bs_i is hardwired per-instance (0, 1, 2, or 3)
   //-------------------------------------------------------------------------
   logic [4:0] shamt;
   logic [7:0] si, so;
 
-  // aes32esi: place SubBytes(so) into byte lane bs
-  logic [31:0] so_placed;
+  assign shamt = {bs_i, 3'b000};           // bs * 8
+  assign si    = operand_b_i[shamt +: 8];  // extract byte bs from rs2
+  assign so    = aes_sbox_fwd(si);
 
-  // aes32esmi: MixColumns single-byte contribution, then ROL32 by bs*8
+  //-------------------------------------------------------------------------
+  // aes32esi lane: SubBytes(so) placed in byte lane bs
+  //-------------------------------------------------------------------------
+  logic [31:0] so_placed;
+  always_comb
+    case (bs_i)
+      2'b00: so_placed = {24'b0,       so       };
+      2'b01: so_placed = {16'b0, so,   8'b0     };
+      2'b10: so_placed = { 8'b0, so,  16'b0     };
+      2'b11: so_placed = {       so,  24'b0     };
+    endcase
+
+  //-------------------------------------------------------------------------
+  // aes32esmi lane: ROL32(MixColumn(so), bs*8)
+  // Column contribution: coefficients [0x02, 0x01, 0x01, 0x03]
+  //-------------------------------------------------------------------------
   logic [7:0]  mc0, mc1, mc2, mc3;
   logic [31:0] mixcol_word;
   logic [31:0] rol_mixed;
 
-  //-------------------------------------------------------------------------
-  // Byte select and SubBytes lookup
-  //-------------------------------------------------------------------------
-  assign shamt = {bs_i, 3'b000};            // bs * 8 : values 0, 8, 16, 24
-  assign si    = operand_b_i[shamt +: 8];   // extract byte bs from rs2
-  assign so    = aes_sbox_fwd(si);
-
-  //-------------------------------------------------------------------------
-  // aes32esi: rd = rs1 ^ (so placed in byte lane bs)
-  //-------------------------------------------------------------------------
-  always_comb
-    case (bs_i)
-      2'b00: so_placed = {24'b0,        so};
-      2'b01: so_placed = {16'b0,  so,  8'b0};
-      2'b10: so_placed = { 8'b0,  so, 16'b0};
-      2'b11: so_placed = {        so, 24'b0};
-    endcase
-
-  //-------------------------------------------------------------------------
-  // aes32esmi: rd = rs1 ^ ROL32(MixColumn(so), bs*8)
-  // Column contribution vector: coeff [0x03, 0x01, 0x01, 0x02] * so
-  //-------------------------------------------------------------------------
-  assign mc0 = xt2(so);        // byte 0: coefficient 0x02
-  assign mc1 = so;              // byte 1: coefficient 0x01
-  assign mc2 = so;              // byte 2: coefficient 0x01
-  assign mc3 = xt2(so) ^ so;   // byte 3: coefficient 0x03
+  assign mc0 = xt2(so);
+  assign mc1 = so;
+  assign mc2 = so;
+  assign mc3 = xt2(so) ^ so;
   assign mixcol_word = {mc3, mc2, mc1, mc0};
 
   always_comb
@@ -171,14 +172,13 @@ module cv32e40p_zkne
     endcase
 
   //-------------------------------------------------------------------------
-  // Output mux
+  // Output: lane contribution only (no rs1 XOR — applied in ALU)
   //-------------------------------------------------------------------------
   always_comb
     case (operator_i)
-      ALU_AES32ESI:  result_o = operand_a_i ^ so_placed;
-      ALU_AES32ESMI: result_o = operand_a_i ^ rol_mixed;
+      ALU_AES32ESI:  result_o = so_placed;
+      ALU_AES32ESMI: result_o = rol_mixed;
       default:       result_o = '0;
     endcase
 
 endmodule
-

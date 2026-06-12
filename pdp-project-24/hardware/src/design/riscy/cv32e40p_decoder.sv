@@ -153,7 +153,10 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
   input  logic [31:0] mcounteren_i,
 
   // Zkne AES32 byte-select routing signal
-  output logic        aes_insn_o         // 1 when aes32esi/esmi decoded (bs = instr[31:30])
+  output logic        aes_insn_o,        // 1 when aes32esi/esmi decoded (bs = instr[31:30])
+
+  // Super-instruction rs4 read enable (only for AES32_ESI_SUPER / ESMI_SUPER)
+  output logic        regd_used_o        // rs4 (instr[31:27]) is used as 4th source
 );
 
   // write enable/request control
@@ -281,6 +284,8 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
     is_subrot_o                 = 1'b0;
 
     aes_insn_o                  = 1'b0;
+
+    regd_used_o                 = 1'b0;
 
     mret_dec_o                  = 1'b0;
     uret_dec_o                  = 1'b0;
@@ -2996,6 +3001,37 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
           illegal_insn_o = 1'b1;
         end
       end // case: OPCODE_HWLOOP
+
+      ///////////////////////////////////////////////////////////////
+      // Zkne AES32 Super-Instructions (4-source, custom opcodes)  //
+      // Format: rs4[31:27] | rs3[26:22] | rs2[24:20] |           //
+      //         rs1[19:15] | rd[11:7]   | opcode[6:0]            //
+      // bs = instr[21:20] (low 2 bits of rs3 field).             //
+      ///////////////////////////////////////////////////////////////
+
+      7'h3f: begin   // OPCODE_AES32_ESI_SUPER
+        alu_en             = 1'b1;
+        alu_operator_o     = ALU_AES32ESI;
+        rega_used_o        = 1'b1;
+        regb_used_o        = 1'b1;
+        regc_used_o        = 1'b1;
+        regc_mux_o         = REGC_S4;
+        regd_used_o        = 1'b1;
+        aes_insn_o         = 1'b0;
+        regfile_alu_we     = 1'b1;
+      end
+
+      7'h7f: begin   // OPCODE_AES32_ESMI_SUPER
+        alu_en             = 1'b1;
+        alu_operator_o     = ALU_AES32ESMI;
+        rega_used_o        = 1'b1;
+        regb_used_o        = 1'b1;
+        regc_used_o        = 1'b1;
+        regc_mux_o         = REGC_S4;
+        regd_used_o        = 1'b1;
+        aes_insn_o         = 1'b0;
+        regfile_alu_we     = 1'b1;
+      end
 
       default: begin
         illegal_insn_o = 1'b1;
