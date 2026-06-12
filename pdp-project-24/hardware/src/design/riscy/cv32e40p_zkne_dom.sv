@@ -212,11 +212,4 @@ module cv32e40p_zkne_dom
         endcase
     end
 
-    // TEMPORARY DEBUG
-    always_ff @(posedge clk) begin
-        if (en_i)
-            $display("DOM t=%0t en_i=%b valid_i=%b sbox_out_req=%b so=%02x so_reg=%02x pipe_a4=%08x result=%08x valid_o=%b",
-                    $time, en_i, valid_i, sbox_out_req, so, so_reg, pipe_a[4], result_o, valid_o);
-    end
-
 endmodule
