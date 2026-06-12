@@ -24,7 +24,7 @@ LLVM_CFLAGS += --sysroot=$(RISCV_GCC)/$(RISCV_ARCH)
 GCC_WARNS  = -Wall -Wextra -Wshadow -Wundef -Wpointer-arith -Wcast-qual -Wcast-align -Wwrite-strings
 
 # Define common files
-MAIN_SRC := main.c 
+MAIN_SRC := main_cw_dom_fixed.c 
 MAIN_ASM := crt0.riscv.S
 # Define source files
 SOFT_SRC := $(wildcard $(SOFT_DIR)/*.c)
@@ -60,7 +60,7 @@ crt0.riscv.o: crt0.riscv.S
 	$(LLVMCC) $(LLVM_CFLAGS) -c -o $@ $<
 
 soft: $(SOFT_OBJS) crt0.riscv.o
-	$(LLVMCC) $(LLVM_CFLAGS) $(LLVM_LDFLAGS) -msmall-data-limit=8 -o $(OUTPUT_DIR)/soft.elf  $(SOFT_OBJS) crt0.riscv.o
+	$(LLVMCC) $(LLVM_CFLAGS) $(LLVM_LDFLAGS) -msmall-data-limit=8 -o $(OUTPUT_DIR)/soft.elf $(SOFT_OBJS) crt0.riscv.o
 	$(OBJCOPY) -O srec $(OUTPUT_DIR)/soft.elf $(OUTPUT_DIR)/soft.srec
 	$(PYTHON) python_script/srec_to_coe.py   $(OUTPUT_DIR)/soft.srec $(PYTHON_FLAGS_CODE) -o $(BIN_DIR)/code.coe
 	$(PYTHON) python_script/srec_to_coe.py   $(OUTPUT_DIR)/soft.srec $(PYTHON_FLAGS_DATA) -o $(BIN_DIR)/data.coe
