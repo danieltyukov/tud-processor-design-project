@@ -6,6 +6,14 @@ unmodified gitlab repo at `pdp-project-24/` on the TU Delft server
 shipped `.coe` files. Pipeline proven reproducible from C source
 (`make soft` produces byte-identical `.coe`).
 
+> **Canonical software baseline (team decision, 2026-06-12): 61,184 cycles.**
+> This is Hruday's current measurement and is the number used on the slides and
+> for every speedup figure (HW 6,260 → unroll 4,800 → parallel DOM S-box 4,104).
+> The **59,560** figure below is the original 2026-04-24 measurement; it is kept
+> for history but is **superseded** — the ~2.7% gap comes from a different build
+> (toolchain/`main.c`), not the machine (sim cycle counts are deterministic).
+> Compare all improvements against **61,184**.
+
 ---
 
 ## 1. Functional baseline — behavioural simulation
@@ -103,7 +111,7 @@ Always report improvements vs. our measured values, not the PDF.
 
 ## 6. What these numbers mean for the project plan
 
-- **Cycle target**: any RTL change adding `aes32esmi`/`aes32esi` must reduce 59,560 cycles — ideally by 15–25% for the mandatory-improvement deliverable.
+- **Cycle target**: any RTL change adding `aes32esmi`/`aes32esi` must reduce the **61,184**-cycle software baseline (see canonical note at top; was 59,560 in April).
 - **Timing budget**: +5.513 ns slack is generous. Adding an SBox LUT (8→8 bit, ~2-3 ns) and partial MixColumns XOR network (~1 ns) will consume slack but should stay positive.
 - **Area budget**: xc7z020 has 53,200 LUTs, we use 5,691. Area is not the binding constraint.
 - **DSPs**: 5/220 used. Plenty of room if any AES variant wants finite-field multiplies (GF(2⁸)).
