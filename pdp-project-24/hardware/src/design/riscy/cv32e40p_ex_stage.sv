@@ -181,10 +181,15 @@ module cv32e40p_ex_stage
   logic        aes_ready_int;   // DOM unit not busy
   logic [31:0] aes_result;      // DOM unit output
 
-  // AES instruction detection
-  assign aes_insn = alu_en_i &
+  // AES instruction detection (scalar 1-lane vs fused 2-lane)
+  logic aes_is_scalar, aes_is_wide;
+  assign aes_is_scalar = alu_en_i &
                     ((alu_operator_i == ALU_AES32ESI) |
                      (alu_operator_i == ALU_AES32ESMI));
+  assign aes_is_wide = alu_en_i &
+                    ((alu_operator_i == ALU_AES32ESI2) |
+                     (alu_operator_i == ALU_AES32ESMI2));
+  assign aes_insn = aes_is_scalar | aes_is_wide;
 
   // One-shot pulse: only fire valid_i on the FIRST cycle the AES instruction
   // is in EX, not during the stall cycles that follow
@@ -200,7 +205,19 @@ module cv32e40p_ex_stage
       aes_in_flight <= 1'b0;
   end
 
-  // DOM-protected AES32 execution unit
+  // Latch which kind of AES op is in flight (selects the result source and
+  // steers en_i to the active unit only)
+  logic aes_wide_q;
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n)               aes_wide_q <= 1'b0;
+    else if (aes_valid_i_int) aes_wide_q <= aes_is_wide;
+  end
+
+  logic        sc_valid_o, sc_ready, wd_valid_o, wd_ready;
+  logic [31:0] sc_result, wd_result;
+  wire         aes_en = aes_in_flight | aes_valid_i_int;
+
+  // DOM-protected scalar AES32 unit (1 lane): handles ESI / ESMI
   cv32e40p_zkne_dom zkne_dom_i (
       .clk         (clk),
       .rst_n       (rst_n),
@@ -208,12 +225,31 @@ module cv32e40p_ex_stage
       .operand_a_i (alu_operand_a_i),
       .operand_b_i (alu_operand_b_i),
       .bs_i        (imm_vec_ext_i),
-      .en_i        (aes_in_flight | aes_valid_i_int),
-      .valid_i     (aes_valid_i_int),
-      .valid_o     (aes_valid_o_int),
-      .ready_o     (aes_ready_int),
-      .result_o    (aes_result)
+      .en_i        (aes_en & ~(aes_is_wide | aes_wide_q)),
+      .valid_i     (aes_valid_i_int & aes_is_scalar),
+      .valid_o     (sc_valid_o),
+      .ready_o     (sc_ready),
+      .result_o    (sc_result)
   );
+
+  // DOM-protected fused 2-lane AES unit: handles ESI2 / ESMI2
+  cv32e40p_zkne_dom2 zkne_dom2_i (
+      .clk         (clk),
+      .rst_n       (rst_n),
+      .operator_i  (alu_operator_i),
+      .operand_a_i (alu_operand_a_i),
+      .operand_b_i (alu_operand_b_i),
+      .bs_i        (imm_vec_ext_i),
+      .en_i        (aes_en & (aes_is_wide | aes_wide_q)),
+      .valid_i     (aes_valid_i_int & aes_is_wide),
+      .valid_o     (wd_valid_o),
+      .ready_o     (wd_ready),
+      .result_o    (wd_result)
+  );
+
+  assign aes_valid_o_int = sc_valid_o | wd_valid_o;
+  assign aes_ready_int   = sc_ready & wd_ready;
+  assign aes_result      = aes_wide_q ? wd_result : sc_result;
 
   // =========================================================================
   // ALU write port mux
@@ -432,14 +468,6 @@ module cv32e40p_ex_stage
   //
   // Original ready logic kept intact; AES stall added via ~aes_in_flight term.
   // =========================================================================
-
-  // TEMPORARY DEBUG - remove after fixing
-  always_ff @(posedge clk) begin
-      if (aes_insn)
-          $display("t=%0t aes_insn=%b aes_in_flight=%b aes_valid_i=%b aes_valid_o=%b en_i=%b result=%08x",
-                  $time, aes_insn, aes_in_flight, aes_valid_i_int, aes_valid_o_int,
-                  (aes_in_flight | aes_valid_i_int), aes_result);
-  end
 
   assign ex_ready_o = (~apu_stall & alu_ready & mult_ready & lsu_ready_ex_i
                       & wb_ready_i & ~wb_contention

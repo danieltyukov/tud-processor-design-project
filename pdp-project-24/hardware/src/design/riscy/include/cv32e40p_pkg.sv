@@ -166,7 +166,12 @@ package cv32e40p_pkg;
 
     // Zkne: RV32 AES encryption instructions
     ALU_AES32ESI  = 7'b1000000,  // aes32esi:  SubBytes only
-    ALU_AES32ESMI = 7'b1000001   // aes32esmi: SubBytes + MixColumns contribution
+    ALU_AES32ESMI = 7'b1000001,  // aes32esmi: SubBytes + MixColumns contribution
+
+    // Fused 2-lane (half-column) variants: 2 parallel DOM S-boxes per instruction.
+    // bs field carries the pair index p in {0,1} (lanes 2p and 2p+1).
+    ALU_AES32ESI2  = 7'b1000010, // aescolsi2: 2-lane SubBytes only (final round)
+    ALU_AES32ESMI2 = 7'b1000011  // aescolmi2: 2-lane SubBytes + MixColumns (rounds 1..9)
 
   } alu_opcode_e;
 

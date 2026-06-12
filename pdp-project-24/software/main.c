@@ -125,15 +125,46 @@ static uint32_t hw_aes32esi(uint32_t rs1, uint32_t rs2, int bs) {
 static uint32_t hw_aes32esmi(uint32_t rs1, uint32_t rs2, int bs) {
     uint32_t rd = 0;
     switch (bs) {
-    case 0: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x26B50613\n mv %0,a2"
+    case 0: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x24B50613\n mv %0,a2"
                 : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
-    case 1: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x66B50613\n mv %0,a2"
+    case 1: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x64B50613\n mv %0,a2"
                 : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
-    case 2: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xA6B50613\n mv %0,a2"
+    case 2: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xA4B50613\n mv %0,a2"
                 : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
-    default: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xE6B50613\n mv %0,a2"
+    default: __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0xE4B50613\n mv %0,a2"
                 : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2"); break;
     }
+    return rd;
+}
+
+// Fused 2-lane aes32esmi2: computes two byte-lanes (a pair) of a column in one
+// instruction using two parallel DOM S-boxes.
+//   p=0 -> lanes 0,1 : ROL(MixCol(SBOX(rs1[0])),0)  ^ ROL(MixCol(SBOX(rs2[1])),8)
+//   p=1 -> lanes 2,3 : ROL(MixCol(SBOX(rs1[2])),16) ^ ROL(MixCol(SBOX(rs2[3])),24)
+// (rs1 supplies the even lane, rs2 the odd lane; no accumulator.)
+static uint32_t hw_aes32esmi2(uint32_t rs1, uint32_t rs2, int p) {
+    uint32_t rd = 0;
+    if (p == 0)
+        __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x28B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2");
+    else
+        __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x68B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2");
+    return rd;
+}
+
+// Fused 2-lane aes32esi2 (final round): SubBytes-only, no MixColumns.
+//   p=0 -> lanes 0,1 : SBOX(rs1[0]) placed@0 ^ SBOX(rs2[1]) placed@1
+//   p=1 -> lanes 2,3 : SBOX(rs1[2]) placed@2 ^ SBOX(rs2[3]) placed@3
+// (rs1 supplies the even lane, rs2 the odd lane; no accumulator.)
+static uint32_t hw_aes32esi2(uint32_t rs1, uint32_t rs2, int p) {
+    uint32_t rd = 0;
+    if (p == 0)
+        __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x30B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2");
+    else
+        __asm__ volatile("mv a0,%1\n mv a1,%2\n .word 0x70B50613\n mv %0,a2"
+                : "=r"(rd) : "r"(rs1), "r"(rs2) : "a0","a1","a2");
     return rd;
 }
 
@@ -149,29 +180,19 @@ void aes128_encrypt_block(uint8_t *plaintext, uint8_t *round_keys, uint8_t *ciph
     // Initial AddRoundKey
     s0 ^= rk[0]; s1 ^= rk[1]; s2 ^= rk[2]; s3 ^= rk[3];
 
-    // Main rounds 1-9 using aes32esmi
+    // Main rounds 1-9 using aes32esmi.
+    // NOTE: kept as a plain loop on purpose -- full unrolling is performed by
+    // the custom LLVM pass (compiler/aes-unroll-pass), not in the source.
     for (int round = 1; round < 10; round++) {
         uint32_t n0, n1, n2, n3;
 
-        n0 = hw_aes32esmi(0,  s0, 0);
-        n0 = hw_aes32esmi(n0, s1, 1);
-        n0 = hw_aes32esmi(n0, s2, 2);
-        n0 = hw_aes32esmi(n0, s3, 3);
-
-        n1 = hw_aes32esmi(0,  s1, 0);
-        n1 = hw_aes32esmi(n1, s2, 1);
-        n1 = hw_aes32esmi(n1, s3, 2);
-        n1 = hw_aes32esmi(n1, s0, 3);
-
-        n2 = hw_aes32esmi(0,  s2, 0);
-        n2 = hw_aes32esmi(n2, s3, 1);
-        n2 = hw_aes32esmi(n2, s0, 2);
-        n2 = hw_aes32esmi(n2, s1, 3);
-
-        n3 = hw_aes32esmi(0,  s3, 0);
-        n3 = hw_aes32esmi(n3, s0, 1);
-        n3 = hw_aes32esmi(n3, s1, 2);
-        n3 = hw_aes32esmi(n3, s2, 3);
+        // Each column = two fused 2-lane ops (pair 0 = lanes 0,1; pair 1 = lanes
+        // 2,3) XORed together. The diagonal (ShiftRows) is encoded in the source
+        // register order, same as the scalar version.
+        n0 = hw_aes32esmi2(s0, s1, 0) ^ hw_aes32esmi2(s2, s3, 1);
+        n1 = hw_aes32esmi2(s1, s2, 0) ^ hw_aes32esmi2(s3, s0, 1);
+        n2 = hw_aes32esmi2(s2, s3, 0) ^ hw_aes32esmi2(s0, s1, 1);
+        n3 = hw_aes32esmi2(s3, s0, 0) ^ hw_aes32esmi2(s1, s2, 1);
 
         rk += 4;
         s0 = n0 ^ rk[0];
@@ -180,28 +201,15 @@ void aes128_encrypt_block(uint8_t *plaintext, uint8_t *round_keys, uint8_t *ciph
         s3 = n3 ^ rk[3];
     }
 
-    // Final round using aes32esi
+    // Final round using fused 2-lane aes32esi2 (SubBytes-only, no MixColumns).
+    // Same diagonal (ShiftRows) as the main rounds: two fused ops per column
+    // (pair 0 = lanes 0,1; pair 1 = lanes 2,3) XORed together.
     uint32_t n0, n1, n2, n3;
 
-    n0 = hw_aes32esi(0,  s0, 0);
-    n0 = hw_aes32esi(n0, s1, 1);
-    n0 = hw_aes32esi(n0, s2, 2);
-    n0 = hw_aes32esi(n0, s3, 3);
-
-    n1 = hw_aes32esi(0,  s1, 0);
-    n1 = hw_aes32esi(n1, s2, 1);
-    n1 = hw_aes32esi(n1, s3, 2);
-    n1 = hw_aes32esi(n1, s0, 3);
-
-    n2 = hw_aes32esi(0,  s2, 0);
-    n2 = hw_aes32esi(n2, s3, 1);
-    n2 = hw_aes32esi(n2, s0, 2);
-    n2 = hw_aes32esi(n2, s1, 3);
-
-    n3 = hw_aes32esi(0,  s3, 0);
-    n3 = hw_aes32esi(n3, s0, 1);
-    n3 = hw_aes32esi(n3, s1, 2);
-    n3 = hw_aes32esi(n3, s2, 3);
+    n0 = hw_aes32esi2(s0, s1, 0) ^ hw_aes32esi2(s2, s3, 1);
+    n1 = hw_aes32esi2(s1, s2, 0) ^ hw_aes32esi2(s3, s0, 1);
+    n2 = hw_aes32esi2(s2, s3, 0) ^ hw_aes32esi2(s0, s1, 1);
+    n3 = hw_aes32esi2(s3, s0, 0) ^ hw_aes32esi2(s1, s2, 1);
 
     rk += 4;
     n0 ^= rk[0]; n1 ^= rk[1]; n2 ^= rk[2]; n3 ^= rk[3];
@@ -351,4 +359,3 @@ int main()
 
     return 0;
 }
-

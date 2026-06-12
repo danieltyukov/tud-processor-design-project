@@ -584,11 +584,23 @@ module cv32e40p_decoder import cv32e40p_pkg::*; import cv32e40p_apu_core_pkg::*;
               regb_used_o        = 1'b1;
               aes_insn_o         = 1'b1;
               alu_operator_o     = ALU_AES32ESI;
-            end else if (instr_rdata_i[29:25] == 5'b10011) begin
+            end else if (instr_rdata_i[29:25] == 5'b10010) begin
               alu_op_b_mux_sel_o = OP_B_REGB_OR_FWD;
               regb_used_o        = 1'b1;
               aes_insn_o         = 1'b1;
               alu_operator_o     = ALU_AES32ESMI;
+            end else if (instr_rdata_i[29:25] == 5'b10100) begin
+              // aescolmi2: 2-lane fused (bs = instr[31:30] carries pair index p)
+              alu_op_b_mux_sel_o = OP_B_REGB_OR_FWD;
+              regb_used_o        = 1'b1;
+              aes_insn_o         = 1'b1;
+              alu_operator_o     = ALU_AES32ESMI2;
+            end else if (instr_rdata_i[29:25] == 5'b11000) begin
+              // aescolsi2: 2-lane fused SubBytes-only (final round)
+              alu_op_b_mux_sel_o = OP_B_REGB_OR_FWD;
+              regb_used_o        = 1'b1;
+              aes_insn_o         = 1'b1;
+              alu_operator_o     = ALU_AES32ESI2;
             end else begin
               alu_operator_o = ALU_ADD;  // standard ADDI
             end
