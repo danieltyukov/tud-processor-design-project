@@ -1,151 +1,264 @@
-# tud-processor-design-project
+# Hardware/Compiler Co-Design of AES-128 on a RISC-V Soft Core
 
-Group 24 personal workspace for **CESE4040 Processor Design Project** (TU Delft, Q4 2025-2026).
+> Accelerating and hardening AES-128 on a **CV32E40P (RISCY)** RISC-V soft core
+> running on a **PYNQ-Z1 (Zynq-7000) FPGA** — through coordinated **RTL**,
+> **LLVM compiler**, and **side-channel** work.
 
-This repo holds our personal helpers, notes, course PDFs, profiling
-work, and the intermediate-report draft. The course-tracked sources
-(RTL, C software) are referenced as a **git submodule** pointing at the
-GitLab course repo; cloning + initialising the submodule pulls them in.
+[![RISC-V](https://img.shields.io/badge/ISA-RISC--V%20rv32imac-283272)](https://riscv.org/)
+[![Core](https://img.shields.io/badge/core-CV32E40P%20(RISCY)-0a7bbb)](https://github.com/openhwgroup/cv32e40p)
+[![RTL](https://img.shields.io/badge/RTL-SystemVerilog-orange)](#1--hardware-aes-instructions-zkne)
+[![Compiler](https://img.shields.io/badge/compiler-LLVM%20pass-262d3a)](#2--custom-llvm-loop-unroll-pass)
+[![FPGA](https://img.shields.io/badge/FPGA-Vivado%202024.2%20%7C%20PYNQ--Z1-c8102e)](#hardware--toolchain)
+[![Security](https://img.shields.io/badge/side--channel-DOM%20masking-2e7d32)](#3--side-channel-hardening-dom-masked-s-box)
 
-> Course context, deadlines, baseline numbers, etc. → `CLAUDE.md`
-> Measured baseline (cycles, area, timing) → `BASELINE.md`
-> Post-impl baseline (full design, routed) → `baselines/post-impl-2026-05-06/README.md`
-> Static + dynamic profiling → `PROFILING.md`
-> Running task log → `PROGRESS.md`
-> Intermediate-report draft (Brightspace Q1–Q5) → `REPORT_INTERMEDIATE.md`
-> State-of-the-art papers we cite → `references/README.md`
-> Working-text drafts the team has shared → `drafts/`
-> Generated bitstreams (gitignored, regenerable) → `artifacts/`
-> Profiling instrumentation snapshots → `profiling-instrumentation/`
+**TU Delft · CESE4040 Processor Design Project · Q4 2025–2026 · Group 24**
 
-## Layout
+---
+
+<p align="center">
+  <img src="slides_assets/fig_optim_overview.png" width="880" alt="From baseline to optimized AES: 61,184 cycles down to 4,104 — about 15x faster and side-channel hardened">
+</p>
+
+We take a stock software AES-128 implementation on an in-order RISC-V core and
+drive it from **61,184 cycles to 4,104 cycles (≈15× fewer cycles)** while *also*
+adding first-order side-channel resistance — combining three independent
+techniques that stack cleanly:
+
+| Stage | Cycles | Δ | Speedup vs SW baseline |
+|---|---:|---:|---:|
+| Software AES-128 (pure C) — **baseline** | 61,184 | — | 1.0× |
+| `+` Hardware **Zkne** instructions (`aes32esmi` / `aes32esi`) | 6,260 | −90% | **9.8×** |
+| `+` Custom **LLVM loop-unroll** pass | 4,800 | −23% | **12.7×** |
+| `+` **Parallel DOM S-box** (side-channel hardened) | 4,104 | −15% | **14.9×** |
+
+> All cycle counts are measured directly from the testbench's hardware cycle
+> counter (`mem_snoop_match.CLK_COUNT`) in Vivado XSim, ciphertext-verified
+> against the AES-128 ECB known-answer test. Numbers are reported against *our*
+> measured baseline, not the course PDF's reference figures — see
+> [`BASELINE.md`](BASELINE.md).
+
+---
+
+## Why these three changes?
+
+We profiled the baseline before touching anything. Both static
+instruction-count analysis and dynamic per-function cycle measurement (via the
+`mcycle` CSR) agree: **one function, `mix_columns`, burns 83.8% of all cycles.**
+
+<p align="center">
+  <img src="slides_assets/fig_bottlenecks.png" width="720" alt="Profiling: mix_columns consumes 83.8% of all AES cycles">
+</p>
+
+`mix_columns` is dominated by the bit-serial `gf_mult()` GF(2⁸) multiplier the
+compiler inlines 8× per column. That single hot-spot is *exactly* what the
+RISC-V scalar-crypto `aes32esmi` instruction collapses into one cycle — so the
+profiling directly motivated the hardware work. Full methodology, CPI analysis,
+and static-vs-dynamic cross-check: [`PROFILING.md`](PROFILING.md).
+
+---
+
+## What was built
+
+### 1 · Hardware AES instructions (Zkne)
+
+The RISC-V **scalar-cryptography (Zkne)** instructions `aes32esmi` (middle
+round) and `aes32esi` (final round) were implemented in the CV32E40P ALU +
+decoder. Each fuses SubBytes + ShiftRows + (partial) MixColumns + AddRoundKey
+for one byte-lane into a **single-cycle instruction**, eliminating the inlined
+software multiplier and its BRAM traffic entirely.
+
+<p align="center">
+  <img src="slides_assets/fig_round_collapse.png" width="720" alt="A ~186-instruction software round collapses into single-cycle aes32esmi instructions">
+</p>
+
+- RTL: [`pdp-project-24/hardware/src/design/riscy/`](pdp-project-24/hardware/src/design/riscy/)
+  (`cv32e40p_zkne.sv`, `cv32e40p_alu.sv`, `cv32e40p_decoder.sv`)
+- Exposed to C via inline assembly so the AES source can emit the new opcodes.
+- **Result: 61,184 → 6,260 cycles (9.8×).** The MixColumns bottleneck disappears.
+
+### 2 · Custom LLVM loop-unroll pass
+
+A loadable **LLVM pass** (`libAESUnroll.so`, `PassInfoMixin`) identifies the
+9-round AES loop and fully unrolls it through LLVM's `UnrollLoop()` utility —
+removing per-round counter, branch, and key-pointer overhead that `-Os`
+otherwise refuses to unroll.
+
+- Source: [`pdp-project-24/compiler/aes-unroll-pass/AESUnroll.cpp`](pdp-project-24/compiler/aes-unroll-pass/AESUnroll.cpp)
+- Used at build time via `clang -fpass-plugin=build/libAESUnroll.so`.
+- **Result: 6,260 → 4,800 cycles (−23%),** identical ciphertext.
+
+### 3 · Side-channel hardening (DOM-masked S-box)
+
+The hardware Zkne S-box is fast but leaks: a textbook **CPA** attack recovers
+the AES key byte in ~100 simulated traces. We replaced it with a **2-share,
+Domain-Oriented-Masking (DOM)** tower-field S-box (`GF((2⁴)²)`, registered
+DOM-AND gates, 20 bits of fresh randomness per evaluation) that defeats the same
+attack — and laid out two S-box lanes in parallel so the *secure* version is
+also *faster* than the unrolled one.
+
+<p align="center">
+  <img src="slides_assets/fig_parallel_sbox.png" width="720" alt="Parallel 2-lane DOM S-box: two byte-lanes per instruction, masking intact">
+</p>
+
+A complete simulation-based attack rig (CPA + TVLA) quantifies before/after:
+
+<p align="center">
+  <img src="slides_assets/fig_validation_pipeline.png" width="820" alt="Side-channel validation pipeline: RTL S-box to xsim testbench to CSV to CPA/TVLA to leakage verdict">
+</p>
+
+<table>
+<tr>
+<td width="50%"><img src="sidechannel/out/slides/cpa_before_after.png" alt="CPA: true key rank 1/256 (broken) before DOM, rank 35/256 (safe) after"></td>
+<td width="50%"><img src="sidechannel/out/slides/tvla_before_after.png" alt="TVLA: |t| climbs to 44 (leaking) before DOM, stays at 1.4 (no leakage) after"></td>
+</tr>
+</table>
+
+| Metric | Unprotected Zkne | DOM-masked | Improvement |
+|---|---:|---:|---:|
+| CPA true-key rank | **1 / 256** (recovered) | 35 / 256 | 35× harder |
+| CPA top correlation \|r\| | 0.58 | 0.022 | **26× smaller** |
+| TVLA Welch \|t\| (threshold 4.5) | **44.0** (leaks) | 1.4 (clean) | **31× smaller** |
+| Key recovered within budget? | Yes, ~100 traces | No (20,000 traces) | — |
+
+> **Scope, stated honestly.** No ChipWhisperer was available, so "power" is the
+> simulation proxy `HW(captured_register)` — the standard RTL-level fallback.
+> This is a sound demonstration of DOM *principles* (it catches first-order,
+> data-dependent leakage) but is **necessary, not sufficient**, for a
+> hardware-secure claim, which would need a CW305 board or formal verification
+> (SILVER). Full write-up, area/timing cost, and references:
+> [`SIDECHANNEL.md`](SIDECHANNEL.md).
+
+---
+
+## Area & timing cost
+
+Everything stays within the FPGA's timing budget — the core had **+5.513 ns of
+setup slack** at 100 MHz to spend, and the additions keep it positive.
+
+| Metric (core, OOC synth) | Baseline | With DOM S-box |
+|---|---:|---:|
+| LUTs | 5,691 (~10.7% of xc7z020) | +182 for the DOM S-box (~+1.5% system) |
+| Registers | 2,524 | +100 FFs |
+| DSP48E1 | 5 | 5 |
+| Setup slack (WNS) @ 100 MHz | +5.513 ns | DOM S-box: +6.054 ns |
+
+Full-system, post-route numbers (10,171 LUTs / 8,522 FFs / 16 BRAM / 1.419 W)
+are frozen in [`baselines/post-impl-2026-05-06/`](baselines/post-impl-2026-05-06/).
+
+---
+
+## Hardware & toolchain
+
+| | |
+|---|---|
+| **Soft core** | CV32E40P "RISCY" (OpenHW Group), single-issue in-order RV32IMAC |
+| **FPGA** | Digilent PYNQ-Z1 — Xilinx Zynq-7000 (`xc7z020clg400-1`), hard ARM Cortex-A9 PS + PL |
+| **Synthesis / sim** | Xilinx Vivado 2024.2 (XSim behavioural sim, OOC + full synth/impl) |
+| **Compiler** | LLVM/clang RISC-V backend + custom pass; GCC for `objcopy` |
+| **Workload** | AES-128 ECB, known-answer tested (`fba50914 714bf41f 2e25aabe aaf9080f`) |
+| **On-board run** | Bitstream + `.hwh` loaded as a PYNQ Overlay, driven from Jupyter on the PS |
+
+---
+
+## Repository map
+
+This repo is the project showcase + engineering record. The course-graded
+sources (RTL, C, the LLVM pass) are vendored under `pdp-project-24/`.
 
 ```
 .
-├── CLAUDE.md                     # primary project context (read this first)
-├── BASELINE.md                   # measured baseline numbers
-├── PROFILING.md                  # static + dynamic profiling, methodology, projections
-├── PROGRESS.md                   # running task log + deadlines + gotchas
-├── REPORT_INTERMEDIATE.md        # draft of the Brightspace intermediate report (Q1–Q5)
-├── README.md                     # this file
-├── credentials.example.txt       # copy → credentials.txt and fill in
-├── baselines/                    # frozen, dated measurement snapshots
-│   └── post-impl-2026-05-06/         # Rishi's full-design routed reports + screenshots
-├── references/                   # state-of-the-art papers we cite (with notes)
-│   ├── README.md
-│   ├── kassimi-2026-secure-zkne-dom.pdf   # TU Delft side-channel paper (Mottah Taouil)
-│   └── pan-2021-aes-coprocessor.pdf       # Wuhan U. super-instruction paper
-├── drafts/                       # team's working text, dated
-│   └── 2026-05-08-hruday-quiz-draft.txt
-├── artifacts/                    # generated bitstreams (gitignored, regenerable)
-│   ├── riscv_wrapper.bit
-│   ├── riscv.hwh
-│   └── riscv_wrapper.tcl
-├── scripts/                      # helpers: server SSH, mount, Vivado, X2Go, fetch
-│   ├── _lib.sh                       # shared: loads credentials
-│   ├── setup-server-auth.sh          # one-time: push your SSH pubkey to the server
-│   ├── connect-server.sh             # ssh into the server
-│   ├── mount-server.sh               # sshfs-mount server $HOME at ~/pdp-server-mnt
-│   ├── umount-server.sh
-│   ├── launch-vivado.sh              # ssh -Y → Vivado GUI (or --batch-sim)
-│   ├── launch-x2go.sh                # full MATE desktop via X2Go
-│   └── fetch-from-server.sh          # scp artifacts (e.g. bitstream) to ./artifacts/
-├── profiling-instrumentation/    # snapshots of instrumented main.c + zynq_tb.sv (Task #6)
-│   ├── README.md
-│   ├── main.baseline.c
-│   ├── main.instrumented.c
-│   ├── zynq_tb.baseline.sv
-│   └── zynq_tb.instrumented.sv
-├── pdp-project-24/               # GIT SUBMODULE → GitLab course repo (RTL + C source)
-└── *.pdf                         # course manuals (Brightspace mirror)
+├── pdp-project-24/            # The graded source tree
+│   ├── hardware/src/design/riscy/   # CV32E40P + Zkne/DOM RTL (SystemVerilog)
+│   ├── compiler/aes-unroll-pass/    # Custom LLVM loop-unroll pass
+│   ├── software/                    # AES-128 C source + Makefile/linker
+│   └── future-work/super-instruction/  # custom-0 fused middle-round op (stretch)
+├── sidechannel/              # Side-channel rig: DOM S-box, leakage TBs, CPA/TVLA
+├── slides_assets/            # Figures used above + in the final presentation
+├── BASELINE.md               # Measured baseline: cycles, area, timing (read first)
+├── PROFILING.md              # Static + dynamic profiling, CPI analysis, methodology
+├── SIDECHANNEL.md            # Side-channel track: attack model, DOM design, results
+├── baselines/                # Frozen, dated measurement snapshots (routed reports)
+└── references/               # State-of-the-art papers we build on
 ```
 
-**Note on `pdp-server-mnt/`**: this is the SSHFS mount of the dev
-server's `$HOME`, mounted by `scripts/mount-server.sh` to
-`~/pdp-server-mnt/` on each developer's laptop. It is *not* in this
-repo (and *cannot* be — it's a network mount with shared-account
-credentials and gigabytes of regenerable Vivado build artifacts). Use
-the helper scripts to access server files; the *valuable* server-side
-artifacts (instrumented `main.c`, `zynq_tb.sv`) are mirrored into
-`profiling-instrumentation/` above.
+**Start here:** [`BASELINE.md`](BASELINE.md) → [`PROFILING.md`](PROFILING.md) →
+[`SIDECHANNEL.md`](SIDECHANNEL.md).
 
-## Onboarding (new teammate)
+---
 
-### 1. Clone
+## My role (Daniel Tyukov)
+
+This was a 5-person project. My contributions:
+
+- **Baseline & measurement infrastructure** — established the measured baseline
+  (cycles / OOC area / timing) and the reproducible **C → COE → simulation →
+  synthesis → bitstream** pipeline the whole team built against.
+- **`aes32esmi` middle-round instruction** (with Vishnu & Rishi) — the RTL for
+  the dominant middle-round acceleration.
+- **Side-channel resilience track (individual)** — designed and verified the
+  tower-field **DOM-masked S-box**, built the simulation-based **CPA/TVLA attack
+  rig**, and produced the before/after leakage analysis shown above.
+
+---
+
+## Reproduce / build
+
+<details>
+<summary><b>Build the software & run the simulation</b></summary>
 
 ```bash
-git clone git@github.com:danieltyukov/tud-processor-design-project.git
-cd tud-processor-design-project
+# Compile AES C → memory-init files, refresh the sim inputs
+cd pdp-project-24/software
+make soft
+cp bin_files/*.coe ../hardware/src/sw/mem_files/   # most common footgun if skipped
+
+# In Vivado's TCL console (from pdp-project-24/hardware/):
+source ./scripts/create_project.tcl       # baseline RISCY project
+source ./scripts/run_simulation.tcl        # behavioural sim (~3 min)
+source ./scripts/create_project_ooc_synth.tcl  # OOC synth: area + timing
+source ./scripts/gen_bitstream.tcl         # full bitstream for the PYNQ-Z1
 ```
 
-### 2. Set up credentials
+Build the LLVM pass:
 
 ```bash
-cp credentials.example.txt credentials.txt
-chmod 600 credentials.txt
-$EDITOR credentials.txt
+cd pdp-project-24/compiler/aes-unroll-pass
+cmake -B build -DLLVM_DIR=<llvm>/lib/cmake/llvm && cmake --build build
+clang -fpass-plugin=build/libAESUnroll.so ...
 ```
 
-Fill in:
+Reproduce the side-channel results: see the step-by-step driver/analysis
+commands in [`SIDECHANNEL.md`](SIDECHANNEL.md) §6.
+</details>
 
-- `PDP_SERVER_PASS` — the shared group-account password (Brightspace / Teams group 24).
-- `PDP_SSH_KEY` — path to **your** SSH private key (generate one if you don't have it: `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_tudelft`).
-- `PDP_GITLAB_TOKEN` — **your own** gitlab Personal Access Token (create at <https://gitlab.ewi.tudelft.nl/-/profile/personal_access_tokens>, scopes `read_repository` + `write_repository`). Needed only on the server side; not for cloning the gitlab repo from your laptop.
+<details>
+<summary><b>Team workflow & dev-server access (internal)</b></summary>
 
-`credentials.txt` is `.gitignore`d — never commit it.
-
-### 3. Pull the gitlab submodule
-
-The course-tracked RTL + C sources are tracked as a git submodule
-pointing at GitLab. Initialize it after cloning this repo:
+Development happens on a shared TU Delft server (Vivado + LLVM + RISC-V GCC
+pre-installed); helper scripts in [`scripts/`](scripts/) wrap SSH, SSHFS mount,
+Vivado launch, and artifact fetch. Credentials live outside the tree in a
+`.gitignore`d `credentials.txt` (copy from `credentials.example.txt`). See
+[`CLAUDE.md`](CLAUDE.md) for the full server/toolchain layout and gotchas.
 
 ```bash
-git submodule update --init --recursive
+./scripts/connect-server.sh                 # ssh into the dev server
+./scripts/mount-server.sh                   # sshfs-mount server $HOME
+./scripts/fetch-from-server.sh --bitstream  # pull bitstream + .hwh to ./artifacts/
 ```
+</details>
 
-Requires SSH-key access to `gitlab.ewi.tudelft.nl` (add your pubkey at
-<https://gitlab.ewi.tudelft.nl/-/profile/keys>). To pull updates from
-GitLab afterwards:
+---
 
-```bash
-git submodule update --remote pdp-project-24
+## References we build on
+
+- **RISC-V Scalar Crypto Extensions v0.9.3** — canonical `aes32esi`/`aes32esmi` encoding.
+- **OpenHW Group CV32E40P User Manual** — authoritative RISCY reference.
+- Gross, Mangard, Mendel — *Domain-Oriented Masking* (TIS 2016).
+- Canright — *A Very Compact S-Box for AES* (CHES 2005).
+- Kassimi et al. — *Secure Implementation of RISC-V's Scalar Cryptography Extension Set* (Cryptography, 2026).
+
+---
+
+<sub>Coursework for TU Delft CESE4040 (Q4 2025–2026), Group 24. Course-provided
+materials remain the property of their authors.</sub>
 ```
-
-If you make changes inside `pdp-project-24/`, commit + push them to
-GitLab from inside that directory; then come back to the parent and
-commit the new submodule reference in this repo.
-
-### 4. Push your SSH pubkey to the dev server (one-time)
-
-```bash
-./scripts/setup-server-auth.sh        # uses sshpass + the password from credentials.txt
-```
-
-After this, every other script uses passwordless pubkey auth.
-
-### 5. Smoke test
-
-```bash
-./scripts/connect-server.sh 'echo hello from $(hostname); ls ~/pdp-project | head'
-```
-
-You should see the server hostname and the gitlab repo contents on the server.
-
-## Common workflows
-
-| What | Command |
-|------|---------|
-| SSH into server | `./scripts/connect-server.sh` |
-| Run a one-shot remote command | `./scripts/connect-server.sh 'ls ~/pdp-project'` |
-| Mount server $HOME locally | `./scripts/mount-server.sh` (then browse `~/pdp-server-mnt/`) |
-| Launch Vivado GUI (X11 forward) | `./scripts/launch-vivado.sh` |
-| Headless baseline simulation | `./scripts/launch-vivado.sh --batch-sim` |
-| Full MATE desktop (smoother) | `./scripts/launch-x2go.sh` |
-| Pull bitstream + .hwh to laptop | `./scripts/fetch-from-server.sh --bitstream` |
-
-## Security notes
-
-- **Never commit `credentials.txt`.** It's gitignored, but double-check `git status` before every push.
-- **Never share your gitlab PAT.** Each teammate creates their own.
-- The dev-server account `cese4040-24` is shared across all 5 of us — be considerate (don't kill X2Go sessions you don't recognize, log out via the GUI).
-- This repo is **private**. If we ever make it public, scrub `CLAUDE.md` first (it mentions internal hostnames, the shared username, and Brightspace group context).
