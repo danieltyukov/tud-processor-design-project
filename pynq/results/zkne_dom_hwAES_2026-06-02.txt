@@ -1,0 +1,33 @@
+>>> ship bitstream + matching .hwh + coes + runner
+>>> execute (sudo for pynq.Overlay)
+[sudo] password for xilinx: >>> overlay /tmp/zkne_tower.bit
+>>> downloading bitstream
+>>> reset core
+>>> load code  (/tmp/code.coe)
+    32768 bytes
+>>> load data  (/tmp/data.coe)
+    32768 bytes
+>>> START
+
+============================================================
+BITSTREAM RAN ON SILICON  (10.2 ms wall-clock)
+============================================================
+  cycle count        = 5506
+
+  AES ciphertext check  =     0xcafebabe   PASSED
+  Zkne hw == sw check   =     0xcafebabe   PASSED
+
+  aes32esi  hw results (rs1=0x12345678, rs2=0xAABBCCDD):
+     bs=0  hw=0x71579664
+     bs=1  hw=0x7157dda5
+     bs=2  hw=0x71bd96a5
+     bs=3  hw=0xdd5796a5
+  aes32esmi hw results:
+     bs=0  hw=0x2996573c
+     bs=1  hw=0x3a1c0078
+     bs=2  hw=0x9b98b34f
+     bs=3  hw=0x32b83a09
+
+  expected ciphertext = fba50914714bf41f2e25aabeaaf9080f
+  calculated          = fba50914714bf41f2e25aabeaaf9080f
+============================================================
